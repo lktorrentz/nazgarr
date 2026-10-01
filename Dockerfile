@@ -17,7 +17,7 @@ RUN npm run build
 
 # Stage 2: backend Python + frontend statico servito dallo stesso
 # container (app/frontend.py) - un solo container con supervisord (CLAUDE.md).
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # mediainfo: fornisce sia la CLI che libmediainfo, usate per calcolare
 # l'Unique ID (vedi docs/SPEC.md sezione 6/11 e CLAUDE.md).
