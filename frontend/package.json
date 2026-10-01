@@ -19,7 +19,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/geist": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@tanstack/query-async-storage-persister": "^5.103.2",
+    "@tanstack/query-async-storage-persister": "^5.104.0",
     "@tanstack/react-query": "^5.103.2",
     "@tanstack/react-query-persist-client": "^5.103.2",
     "class-variance-authority": "^0.7.1",
