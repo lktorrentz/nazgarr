@@ -8,7 +8,7 @@
 # Immagini base fissate per digest: una ricostruzione completa solo quando
 # Dependabot propone il nuovo digest e la PR viene approvata, mai a sorpresa
 # (e una build riproducibile).
-FROM --platform=$BUILDPLATFORM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS frontend-build
+FROM --platform=$BUILDPLATFORM node:26-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS frontend-build
 
 WORKDIR /frontend
 
