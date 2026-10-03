@@ -194,31 +194,47 @@
   color: var(--primary);
 }
 
-/* L'occhio infuocato della scansione (components/FieryEye.tsx): la pupilla
-   scruta da un lato all'altro, l'alone pulsa. Fermo con "riduci movimento". */
+/* L'occhio di fuoco della scansione (components/FieryEye.tsx): la fessura
+   scruta da un lato all'altro, le saette lampeggiano a scatti, l'alone
+   pulsa. Fermo con "riduci movimento". */
 @keyframes fiery-eye-look {
-  0%, 12% { transform: translateX(-9px) scaleX(0.9); }
-  30%, 42% { transform: translateX(0) scaleX(1.15); }
-  60%, 72% { transform: translateX(9px) scaleX(0.9); }
-  88%, 100% { transform: translateX(-9px) scaleX(0.9); }
+  0%, 14% { transform: translateX(-14px) scaleX(0.85); }
+  32%, 46% { transform: translateX(0) scaleX(1.1); }
+  64%, 78% { transform: translateX(14px) scaleX(0.85); }
+  96%, 100% { transform: translateX(-14px) scaleX(0.85); }
 }
 @keyframes fiery-eye-pulse {
-  0%, 100% { opacity: 0.75; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.08); }
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+@keyframes fiery-eye-bolt {
+  0%, 100% { opacity: 0; }
+  4% { opacity: 0.9; }
+  7% { opacity: 0.2; }
+  10% { opacity: 0.85; }
+  16% { opacity: 0; }
 }
 .fiery-eye-pupil {
   transform-box: fill-box;
   transform-origin: center;
-  animation: fiery-eye-look 4.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  animation: fiery-eye-look 5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 .fiery-eye-glow {
   transform-box: fill-box;
   transform-origin: center;
-  animation: fiery-eye-pulse 1.8s ease-in-out infinite;
+  animation: fiery-eye-pulse 2s ease-in-out infinite;
 }
+.fiery-eye-bolt {
+  opacity: 0;
+  animation: fiery-eye-bolt 3.1s linear infinite;
+}
+.fiery-eye-bolt-1 { animation-duration: 4.3s; animation-delay: 1.2s; }
+.fiery-eye-bolt-2 { animation-duration: 5.7s; animation-delay: 2.5s; }
 @media (prefers-reduced-motion: reduce) {
   .fiery-eye-pupil,
-  .fiery-eye-glow {
+  .fiery-eye-glow,
+  .fiery-eye-bolt {
     animation: none;
   }
+  .fiery-eye-bolt { opacity: 0.6; }
 }
