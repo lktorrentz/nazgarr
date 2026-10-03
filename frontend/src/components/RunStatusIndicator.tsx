@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom'
 
 import { useRuns } from '@/api/hooks/runs'
 import { Progress } from '@/components/ui/progress'
+import { FieryEye } from '@/components/FieryEye'
 import { t } from '@/lib/i18n'
 import {
   etaSeconds,
@@ -196,7 +197,7 @@ export function RunStatusIndicator() {
     <div className="w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-card text-sm shadow-lg">
       <div className="flex items-start gap-3 px-4 py-3">
         {isActive ? (
-          <Loader2Icon className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />
+          <FieryEye className="-ml-1 h-5 w-8 shrink-0" />
         ) : stopped ? (
           <SquareIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         ) : hasErrors ? (

@@ -193,3 +193,32 @@
   font-size: 0.75rem;
   color: var(--primary);
 }
+
+/* L'occhio infuocato della scansione (components/FieryEye.tsx): la pupilla
+   scruta da un lato all'altro, l'alone pulsa. Fermo con "riduci movimento". */
+@keyframes fiery-eye-look {
+  0%, 12% { transform: translateX(-9px) scaleX(0.9); }
+  30%, 42% { transform: translateX(0) scaleX(1.15); }
+  60%, 72% { transform: translateX(9px) scaleX(0.9); }
+  88%, 100% { transform: translateX(-9px) scaleX(0.9); }
+}
+@keyframes fiery-eye-pulse {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+.fiery-eye-pupil {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fiery-eye-look 4.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+.fiery-eye-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fiery-eye-pulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fiery-eye-pupil,
+  .fiery-eye-glow {
+    animation: none;
+  }
+}
