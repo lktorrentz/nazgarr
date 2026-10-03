@@ -34,6 +34,7 @@ const overrides: Record<string, ReactNode> = {
 }
 
 const RingLabPage = lazy(() => import('@/pages/lab/RingLabPage'))
+const EyeLabPage = lazy(() => import('@/pages/lab/EyeLabPage'))
 
 const ALL_ITEMS = [NAV_DASHBOARD, ...NAV_GROUPS.flatMap((group) => group.items)]
 
@@ -52,6 +53,15 @@ function App() {
           element={
             <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
               <RingLabPage />
+            </Suspense>
+          }
+        />
+        {/* Prova dell'occhio della scansione (branch feat/fiery-eye). */}
+        <Route
+          path="/lab/eye"
+          element={
+            <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+              <EyeLabPage />
             </Suspense>
           }
         />
