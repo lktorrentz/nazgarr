@@ -1,5 +1,5 @@
 # Strumenti di sviluppo, da installare dopo il lock (pip non mescola requisiti
 # con e senza hash, quindi in due passi):
 #   pip install -r requirements.txt && pip install -r requirements-dev.txt
-ruff==0.16.9
+ruff==0.16.10
 pytest==9.1.1
