@@ -5,6 +5,7 @@ fanno entrypoint e supervisord:
     nazgarr init --scan-root /mnt     config.yaml, chiave segreta, controlli
     nazgarr serve                     il server (un solo processo, sempre)
     nazgarr install-service           il servizio systemd (Linux) o launchd (macOS)
+    nazgarr reset-password            una password nuova, se l'hai dimenticata
     nazgarr version
 
 e tutti i comandi client, che parlano con un'istanza in esecuzione
@@ -207,6 +208,59 @@ def cmd_install_service(args) -> int:
     print(f"Service written to {path}. To start it:")
     for step in steps:
         print(f"  {step}")
+    return 0
+
+
+def _as_db_owner(db_path: str) -> None:
+    """`docker exec` gira da root: il DB e i suoi -wal/-shm devono restare
+    dell'utente dell'app (PUID), o il server non potrebbe più scriverci."""
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        owner = os.stat(db_path)
+        if owner.st_uid != 0:
+            os.setgid(owner.st_gid)
+            os.setuid(owner.st_uid)
+
+
+def cmd_reset_password(args) -> int:
+    """Password dimenticata: una nuova direttamente nel database, sulla
+    macchina dove gira Nazgarr (chi può lanciarlo ha già accesso ai suoi
+    file, non è una porta in più). Chiude tutte le sessioni aperte, come
+    cambiarla dalle impostazioni. args.ask: chiede la password (a schermo o
+    da stdin), solo dopo aver trovato l'account."""
+    config_path = Path(args.config or os.environ.get("CONFIG_PATH") or default_config_path())
+    if not config_path.is_file():
+        print(f"No configuration at {config_path}: pass --config.", file=sys.stderr)
+        return 2
+    from nazgarr.core.config import load_settings
+
+    db_path = load_settings(str(config_path)).db_path
+    if not Path(db_path).is_file():
+        print(f"No database at {db_path}.", file=sys.stderr)
+        return 2
+    _as_db_owner(db_path)
+    from nazgarr.core import db, settings_repo
+    from nazgarr.web import auth
+
+    engine = db.make_engine(db_path)
+    try:
+        with db.make_session_factory(engine)() as session:
+            username = settings_repo.get_setting(session, "auth_username")
+            if not auth.is_auth_configured(session):
+                print("No account yet: open Nazgarr and create it with the setup code printed in its log.",
+                      file=sys.stderr)
+                return 2
+            username = (args.username or "").strip() or username
+            password = args.ask()
+            if len(password) < 8:
+                print("The password needs at least 8 characters. Nothing changed.", file=sys.stderr)
+                return 2
+            settings_repo.set_setting(session, "auth_username", username)
+            settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(password))
+            auth.revoke_all_tokens(session)
+    finally:
+        engine.dispose()
+    print(f"New password set for {username}. Every open session is logged out: log in again. "
+          "API keys keep working.")
     return 0
 
 

@@ -184,7 +184,7 @@ Every torrent Nazgarr adds is rechecked by the client. Transmission and rTorrent
 
 ## First access
 
-1. **Create the account.** Nazgarr stays closed until its single account exists. The log prints a one-time setup code (`docker logs nazgarr`, or the service log). Open the web UI, enter the code, and choose a username and password.
+1. **Create the account.** Nazgarr stays closed until its single account exists. The log prints a one-time setup code (`docker logs nazgarr`, or the service log). Open the web UI, enter the code, and choose a username and password. Forgot it later? `docker exec -it nazgarr nazgarr reset-password` (or `nazgarr reset-password` for the Python package) sets a new one.
 2. **Follow the guided setup.** A short welcome asks whether you upload and whether you use Radarr/Sonarr. The tour then walks you through each screen:
    - disks and their folders;
    - torrent clients;
