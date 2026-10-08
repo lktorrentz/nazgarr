@@ -810,9 +810,9 @@ pyyaml==6.0.3 \
     # via
     #   -r requirements.in
     #   uvicorn
-qbittorrent-api==2026.8.1 \
-    --hash=sha256:9642c4528baee67216eab87022ce297048ac96df2f8c9f1cf920de078eb50b62 \
-    --hash=sha256:c17260e416ec5832c3ed7aff46fb0e2b47e70b90de182e89c34133b9d4ce5a6e
+qbittorrent-api==2026.10.0 \
+    --hash=sha256:2b4c9a6be2f6476c35d10bdb149f357f03781a72506e9deca2bccef8c327e97b \
+    --hash=sha256:4db35298ffd469bc09f45e8ee3ae1385fabf833971150aacacd5bce43d4cb94f
     # via -r requirements.in
 rebulk==6.0.1 \
     --hash=sha256:d6df0c8c896e160087c6981f3770ed513ec973a9f4066b9e4b0614eb08ba0ce1 \
@@ -952,7 +952,7 @@ urllib3==2.8.0 \
     # via
     #   qbittorrent-api
     #   requests
-uvicorn==0.54.0 \
+uvicorn[standard]==0.54.0 \
     --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf \
     --hash=sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620
     # via -r requirements.in
