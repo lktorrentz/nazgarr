@@ -8,6 +8,7 @@ i valori proposti, ma un problema (ID mancanti, reseed non verificato, pack
 misto non confermato) ferma comunque."""
 
 import time
+from datetime import datetime
 
 import typer
 from rich.status import Status
@@ -203,7 +204,18 @@ def _verify(client, job_id: int, target: dict, torrent_id: str) -> dict:
                 return fresh
 
 
-def _decide(client, job: dict, yes: bool, confirm_mixed: bool) -> dict:
+def _parse_at(value: str | None) -> str | None:
+    """--at "2026-10-10 21:00": l'ora locale di questo computer, in ISO."""
+    if not value:
+        return None
+    try:
+        when = datetime.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise fail("--at wants a date and time, e.g. \"2026-10-10 21:00\".", EXIT_USAGE) from exc
+    return (when if when.tzinfo else when.astimezone()).isoformat()
+
+
+def _decide(client, job: dict, yes: bool, confirm_mixed: bool, at: str | None = None) -> dict:
     analysis = job.get("analysis") or {}
     mixed = analysis.get("pack_mixed")
     if mixed and not (job.get("overrides") or {}).get("pack_mixed_confirmed"):
@@ -248,21 +260,26 @@ def _decide(client, job: dict, yes: bool, confirm_mixed: bool) -> dict:
         (t["tracker_label"], d["action"],
          d["name"] if d["action"] == "upload" else d.get("reseed_torrent_id") or "") for t, d in zip(
             job["targets"], decisions, strict=True)])
-    confirm("Approve? Uploads, hardlinks and torrents added to the clients follow on their own.", yes)
-    return client.post(f"/api/uploads/{job['id']}/approve", {"targets": decisions})
+    confirm("Approve? Uploads, hardlinks and torrents added to the clients follow on their own"
+            + (f", starting {at}." if at else "."), yes)
+    return client.post(f"/api/uploads/{job['id']}/approve", {"targets": decisions, "scheduled_at": at})
 
 
 # --- il percorso intero -----------------------------------------------------------
 
 
-def drive(ctx: typer.Context, job_id: int, yes: bool, tmdb: str | None, confirm_mixed: bool, wait: bool) -> dict:
+def drive(ctx: typer.Context, job_id: int, yes: bool, tmdb: str | None, confirm_mixed: bool, wait: bool,
+          at: str | None = None) -> dict:
     client = api(ctx)
     job = _wait(client, job_id, ())
     if job["status"] == "awaiting_match":
         job = _match(client, job, yes, tmdb)
         job = _wait(client, job_id, ())
     if job["status"] == "awaiting_decision":
-        job = _decide(client, job, yes, confirm_mixed)
+        job = _decide(client, job, yes, confirm_mixed, _parse_at(at))
+        if job.get("scheduled_at"):
+            console.print(f"Upload #{job_id} scheduled for {job['scheduled_at']}.")
+            return job  # niente attesa: parte da solo a quell'ora
         console.print(f"Upload #{job_id} queued.")
     if wait and job["status"] not in FINAL:
         job = _wait(client, job_id, ())
@@ -287,6 +304,7 @@ def new_upload(
     yes: bool = typer.Option(False, "--yes", "-y", help="Accept the proposed values without asking."),
     confirm_mixed: bool = typer.Option(False, "--confirm-mixed", help="Allow a pack of different releases."),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Follow it until it is done."),
+    at: str = typer.Option(None, "--at", help="Start at this local time instead of right away (\"2026-10-10 21:00\")."),
 ):
     """Start an upload and walk it through match, decision and approval."""
     client = api(ctx)
@@ -305,7 +323,7 @@ def new_upload(
         body["forced_ids"] = {"tmdb": tmdb}
     job = client.post("/api/uploads", body)
     console.print(f"Upload #{job['id']} started: {_title(job)}")
-    job = drive(ctx, job["id"], yes, tmdb, confirm_mixed, wait)
+    job = drive(ctx, job["id"], yes, tmdb, confirm_mixed, wait, at)
     if state(ctx).json:
         emit(state(ctx), job, lambda _j: None)
 
@@ -318,9 +336,25 @@ def continue_upload(
     yes: bool = typer.Option(False, "--yes", "-y", help="Accept the proposed values without asking."),
     confirm_mixed: bool = typer.Option(False, "--confirm-mixed", help="Allow a pack of different releases."),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Follow it until it is done."),
+    at: str = typer.Option(None, "--at", help="Start at this local time instead of right away (\"2026-10-10 21:00\")."),
 ):
     """Pick an upload up where it is (match or decision waiting for you)."""
-    drive(ctx, job_id, yes, tmdb, confirm_mixed, wait)
+    drive(ctx, job_id, yes, tmdb, confirm_mixed, wait, at)
+
+
+@app.command("schedule")
+def schedule_upload(
+    ctx: typer.Context,
+    job_id: int = typer.Argument(..., help="The upload ID, queued."),
+    at: str = typer.Option(None, "--at", help="The new local start time (\"2026-10-10 21:00\")."),
+    now: bool = typer.Option(False, "--now", help="Start it as soon as it is its turn."),
+):
+    """Change when a queued upload starts, or start it now."""
+    if bool(at) == now:
+        raise fail("Either --at or --now.", EXIT_USAGE)
+    job = api(ctx).post(f"/api/uploads/{job_id}/schedule", {"scheduled_at": None if now else _parse_at(at)})
+    when = job.get("scheduled_at")
+    console.print(f"Upload #{job_id}: " + (f"starts {when}." if when else "starts now."))
 
 
 @app.command("ls")

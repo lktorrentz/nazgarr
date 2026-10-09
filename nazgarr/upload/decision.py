@@ -10,6 +10,7 @@ la sua decisione esplicita, mai uno per default.
 
 import json
 import logging
+from datetime import datetime
 
 from sqlalchemy.orm import Session, object_session
 
@@ -283,9 +284,11 @@ def _client_labels(job: UploadJob, target: UploadTarget, decision: dict) -> tupl
     return (category or "").strip() or None, tags
 
 
-def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
+def approve(session: Session, job: UploadJob, decisions: list[dict], scheduled_at: datetime | None = None) -> None:
     """Tutti i tracker insieme, ognuno con la sua decisione. Porta il job in
-    coda ('queued'), o direttamente a 'done' se ogni tracker è saltato."""
+    coda ('queued'), o direttamente a 'done' se ogni tracker è saltato.
+    scheduled_at: parte a quell'ora invece che appena tocca a lui (un'ora
+    già passata vale subito)."""
     if job.status != "awaiting_decision":
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     busy = [t for t in job.targets if t.status != "awaiting_decision"]
@@ -330,10 +333,14 @@ def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
         upload_jobs.transition(session, job, "awaiting_decision", "done")
         upload_jobs.log_event(session, job, "all_skipped")
     else:
+        when = upload_jobs.start_time(scheduled_at)
         upload_jobs.transition(
-            session, job, "awaiting_decision", "queued", queue_position=upload_jobs.next_queue_position(session)
+            session, job, "awaiting_decision", "queued", queue_position=upload_jobs.next_queue_position(session),
+            scheduled_at=when,
         )
         upload_jobs.log_event(session, job, "job_queued", position=job.queue_position)
+        if when is not None:
+            upload_jobs.log_event(session, job, "job_scheduled", at=when.isoformat())
     session.commit()
 
 

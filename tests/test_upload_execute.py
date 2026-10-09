@@ -26,6 +26,10 @@ class _Tracker:
         self.torrent_id, self.error, self.torrent_bytes = torrent_id, error, torrent_bytes
         self.uploads = []
         self.changed_content = False
+        self.catalog = []  # quello che la ricerca trova (il dupe check prima di un upload programmato)
+
+    def search_by_tmdb(self, tmdb_id):
+        return self.catalog
 
     def upload_torrent(self, fields, torrent_path):
         if self.error:
@@ -107,7 +111,7 @@ def env(db_session, tmp_path, monkeypatch):
     return {"root": root, "disk": disk, "trackers": trackers, "client": client, "client_row": client_row}
 
 
-def _approved(db_session, env, relative_path, decisions, file_naming="original", **job_values):
+def _approved(db_session, env, relative_path, decisions, file_naming="original", scheduled_at=None, **job_values):
     job = upload_jobs.create_job(db_session, env["disk"], relative_path)
     # I test di prima dei nomi generati tengono i nomi della sorgente.
     if file_naming:
@@ -122,7 +126,7 @@ def _approved(db_session, env, relative_path, decisions, file_naming="original",
     db_session.commit()
     upload_decision.approve(db_session, job, [
         {"target_id": t.id, **decisions[t.tracker.label]} for t in job.targets
-    ])
+    ], scheduled_at=scheduled_at)
     return job
 
 
@@ -843,3 +847,62 @@ def test_seeding_is_not_retried_when_the_files_are_gone(db_session, tmp_path, en
     with pytest.raises(UploadJobError) as missing:
         upload_execute.retry_seed(db_session, job, target)
     assert missing.value.code == "upload_seed_files_missing"
+
+
+def test_a_scheduled_upload_waits_for_its_time(db_session, tmp_path, env):
+    from datetime import timedelta
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    later = datetime.now(UTC) + timedelta(hours=3)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    scheduled_at=later)
+    assert (job.status, upload_jobs.as_utc(job.scheduled_at)) == ("queued", later)
+    assert any(e.code == "job_scheduled" for e in job.events)
+
+    _run(db_session, tmp_path, job)
+    assert job.status == "queued" and env["trackers"]["a"].uploads == []  # non è ancora ora
+
+    job.scheduled_at = datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+    _run(db_session, tmp_path, job)
+    assert job.status == "done" and len(env["trackers"]["a"].uploads) == 1
+
+
+def test_a_time_already_gone_means_now_and_the_time_can_change(db_session, tmp_path, env):
+    from datetime import timedelta
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    scheduled_at=datetime.now(UTC) - timedelta(minutes=5))
+    assert job.scheduled_at is None
+
+    upload_jobs.schedule(db_session, job, datetime.now(UTC) + timedelta(days=1))
+    assert job.scheduled_at is not None
+    upload_jobs.schedule(db_session, job, None)  # "Avvia ora"
+    assert job.scheduled_at is None and job.events[-1].code == "job_start_now"
+
+
+def test_a_dupe_that_appeared_after_the_decision_stops_that_tracker(db_session, tmp_path, env):
+    from datetime import timedelta
+
+    from nazgarr.adapters.tracker.base import TorrentCandidate
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": _upload("Matrix B")},
+                    scheduled_at=datetime.now(UTC) + timedelta(hours=1))
+    # Su "a" nel frattempo qualcuno l'ha caricata; su "b" c'è solo quello che c'era alla decisione.
+    same = TorrentCandidate(torrent_id_remote="77", info_hash=None, name="The.Matrix.1999.1080p.WEB-DL.H.264-OTHER",
+                            size_bytes=300 * KB, file_list=None, mediainfo_unique_id=None)
+    env["trackers"]["a"].catalog = [same]
+    env["trackers"]["b"].catalog = [same]
+    b = next(t for t in job.targets if t.tracker.label == "b")
+    b.dupes_json = json.dumps([{"torrent_id_remote": "77", "verdict": "identical"}])
+    job.scheduled_at = datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    a = next(t for t in job.targets if t.tracker.label == "a")
+    assert (a.status, a.error_message) == ("failed", "upload_dupe_appeared")
+    assert env["trackers"]["a"].uploads == [] and len(env["trackers"]["b"].uploads) == 1
+    assert job.status == "partial"

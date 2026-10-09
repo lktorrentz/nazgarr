@@ -221,8 +221,24 @@ export function useUpdateOverrides(uploadId: number) {
 export function useApproveUpload(uploadId: number) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (targets: Schemas['TargetDecision'][]) =>
-      unwrap(api.POST('/api/uploads/{upload_id}/approve', { params: { path: { upload_id: uploadId } }, body: { targets } })),
+    // scheduled_at: parte a quell'ora (ISO), null = appena tocca a lui.
+    mutationFn: (body: Schemas['UploadApproveRequest']) =>
+      unwrap(api.POST('/api/uploads/{upload_id}/approve', { params: { path: { upload_id: uploadId } }, body })),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['uploads', uploadId], job)
+      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+    },
+  })
+}
+
+// Un upload in coda: un'altra ora di partenza, o subito (null).
+export function useScheduleUpload(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (scheduledAt: string | null) =>
+      unwrap(api.POST('/api/uploads/{upload_id}/schedule', {
+        params: { path: { upload_id: uploadId } }, body: { scheduled_at: scheduledAt },
+      })),
     onSuccess: (job) => {
       queryClient.setQueryData(['uploads', uploadId], job)
       queryClient.invalidateQueries({ queryKey: ['uploads'] })

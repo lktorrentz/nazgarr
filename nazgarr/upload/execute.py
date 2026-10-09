@@ -715,12 +715,52 @@ def _remove_split_folder(session: Session, job: UploadJob, watch: str) -> None:
     session.commit()
 
 
+def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]) -> None:
+    """Un upload programmato parte ore o giorni dopo la decisione: prima di
+    tutto il dupe check di ogni tracker si rifà, e un torrent comparso nel
+    frattempo (identico, o nello stesso slot) ferma l'upload su quel tracker.
+    Quelli che c'erano già alla decisione li ha visti l'utente. Un reseed no:
+    il torrent è già quello del tracker. Se il tracker non risponde si va
+    avanti: l'invio fallirebbe comunque, e il registro lo dice."""
+    from nazgarr.upload import analysis as upload_analysis
+    from nazgarr.upload import dupes as upload_dupes
+
+    uploads = [t for t in targets if t.action == "upload" and t.status == "approved"]
+    if not uploads:
+        return
+    try:
+        files = upload_analysis.source_files(job)
+    except OSError:
+        return  # se ne accorge la preparazione, con il suo errore
+    summary = upload_analysis.summary_of(job, files, json.loads(job.analysis_json or "{}"))
+    for target in uploads:
+        known = {d.get("torrent_id_remote") for d in json.loads(target.dupes_json or "[]")}
+        try:
+            with adapter_factory.tracker(target.tracker) as adapter:
+                results, _suggested = upload_dupes.check(adapter.search_by_tmdb(job.tmdb_id), summary)
+        except Exception as exc:
+            logger.warning("Upload %s: dupe check prima dell'invio fallito su %s", job.id, target.tracker.label,
+                           exc_info=True)
+            upload_jobs.log_event(session, job, "dupe_recheck_failed", level="warning", target=target, error=str(exc))
+            continue
+        new = [r for r in results if r["verdict"] in ("identical", "same_slot") and r["torrent_id_remote"] not in known]
+        if new:
+            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)
+            target.error_message = "upload_dupe_appeared"
+            target.finished_at = datetime.now(UTC)
+            upload_jobs.log_event(session, job, "upload_dupe_appeared", level="error", target=target,
+                                  names=[r["name"] for r in new[:3]])
+    session.commit()
+
+
 def handle(session: Session, job: UploadJob, worker) -> None:
     if not upload_jobs.transition(session, job, "queued", "running", queue_position=None):
         return
     upload_jobs.log_event(session, job, "execution_started")
     session.commit()
     targets = [t for t in job.targets if t.status == "approved"]
+    if job.scheduled_at is not None:
+        _recheck_dupes(session, job, targets)
     overrides = json.loads(job.overrides_json or "{}")
     ctx: dict = {"dir": _job_dir(worker, job), "overrides": overrides, "screenshots": []}
 
@@ -734,7 +774,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     ctx["seed_root"] = lazy_seed_root
 
     try:
-        if any(t.action == "upload" for t in targets):
+        if any(t.action == "upload" and t.status == "approved" for t in targets):
             ctx["torrent"] = hash_pieces(session, job, prepare_content(session, job, ctx))
             # Per la barra degli step (ProgressStep): i passaggi conclusi restano segnati.
             upload_jobs.log_event(session, job, "torrent_created")
@@ -751,7 +791,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     except UploadJobError as exc:
         # Senza torrent o screenshot nessun upload può partire; i reseed sì.
         for target in targets:
-            if target.action == "upload":
+            if target.action == "upload" and target.status == "approved":
                 target.status, target.error_message = "failed", exc.code
                 upload_jobs.log_event(session, job, exc.code, level="error", target=target, **exc.params)
         session.commit()

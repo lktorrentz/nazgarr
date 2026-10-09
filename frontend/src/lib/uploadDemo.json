@@ -323,7 +323,7 @@
     "encoder": null,
     "evidence": [],
     "source": "name",
-    "type": "default"
+    "type": "name"
    }
   },
   "candidates": [
@@ -497,6 +497,7 @@
   "progress_total": null,
   "queue_position": null,
   "relative_path": "releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+  "scheduled_at": null,
   "screenshot_urls": [],
   "seasons": [],
   "source_path": "/data/releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
@@ -708,6 +709,7 @@
   "progress_total": null,
   "queue_position": null,
   "relative_path": "releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+  "scheduled_at": null,
   "screenshot_urls": [],
   "seasons": [
    18

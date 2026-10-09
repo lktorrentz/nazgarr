@@ -42,13 +42,25 @@ describe('DecisionStep', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and queue' }))
 
-    expect(approve.mock.calls[0][0]).toEqual([
+    expect(approve.mock.calls[0][0].scheduled_at).toBeNull()
+    expect(approve.mock.calls[0][0].targets).toEqual([
       { target_id: 1, action: 'upload', name: 'Movie (2024) 1080p-GRP', category_id: 1, type_id: 4, resolution_id: 3,
         flags: { anonymous: false, personal_release: false, internal: false, stream: false, freeleech: 0 },
         reseed_torrent_id: null, client_category: null, client_tags: '' },
       { target_id: 2, action: 'skip', name: null, flags: null, category_id: null, type_id: null, resolution_id: null,
         reseed_torrent_id: null },
     ])
+  })
+
+  it('can schedule the upload for a later time', () => {
+    render(<DecisionStep job={{ ...job, overrides: { source: 'WEB-DL' } } as UploadJob} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    fireEvent.click(screen.getByText('At a set time'))
+    fireEvent.change(screen.getByLabelText('Start date and time'), { target: { value: '2030-01-02T21:30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and schedule' }))
+
+    expect(approve.mock.calls[0][0].scheduled_at).toBe(new Date(2030, 0, 2, 21, 30).toISOString())
   })
 
   it('blocks the approval while a name is empty', () => {

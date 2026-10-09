@@ -11,6 +11,7 @@ import { MatchSummaryCard } from '@/components/upload/MatchSummaryCard'
 import { MediaInfoPreview } from '@/components/upload/MediaInfoPreview'
 import { OverridesPanel } from '@/components/upload/OverridesPanel'
 import { PackMixedCard } from '@/components/upload/PackMixedCard'
+import { ScheduleField } from '@/components/upload/ScheduleField'
 import { TargetDecisionForm } from '@/components/upload/TargetDecisionForm'
 import { ActionBadge, TrackerCheckCard } from '@/components/upload/TrackerCheckCard'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,7 @@ import {
 import { t } from '@/lib/i18n'
 import type { MediaInfoSummary } from '@/lib/mediainfo'
 import { packMixed, packMixedConfirmed } from '@/lib/pack'
+import { fromLocalInput } from '@/lib/schedule'
 import { effectiveDraft, sourceMissing, type TargetDraft } from '@/lib/upload'
 
 // Secondo punto di approvazione (docs/SPEC.md §9): cosa ha trovato
@@ -35,6 +37,8 @@ export function DecisionStep({ job }: { job: UploadJob }) {
   const [edits, setEdits] = useState<Record<number, TargetDraft>>({})
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [overridesOpen, setOverridesOpen] = useState(false)
+  // Quando parte: null = appena tocca a lui, se no il valore del campo data e ora.
+  const [when, setWhen] = useState<string | null>(null)
   const approve = useApproveUpload(job.id)
   const missingSource = sourceMissing(job)
   // Dall'avviso sopra il nome o dalla conferma: apre i valori rilevati e ci
@@ -58,8 +62,9 @@ export function DecisionStep({ job }: { job: UploadJob }) {
       : null
 
   function submit() {
-    approve.mutate(
-      drafts.map(({ target, draft }) => ({
+    approve.mutate({
+      scheduled_at: when !== null ? fromLocalInput(when) : null,
+      targets: drafts.map(({ target, draft }) => ({
         target_id: target.id,
         action: draft.action,
         name: draft.action === 'upload' ? draft.name : null,
@@ -70,11 +75,10 @@ export function DecisionStep({ job }: { job: UploadJob }) {
         reseed_torrent_id: draft.action === 'reseed' ? draft.reseed_torrent_id : null,
         ...(draft.action !== 'skip' ? { client_category: draft.client_category, client_tags: draft.client_tags } : {}),
       })),
-      {
-        onSuccess: () => setConfirmOpen(false),
-        onError: (error) => toast.error(t('upload.decision.approveFailed', { message: error.message })),
-      },
-    )
+    }, {
+      onSuccess: () => setConfirmOpen(false),
+      onError: (error) => toast.error(t('upload.decision.approveFailed', { message: error.message })),
+    })
   }
 
   return (
@@ -135,14 +139,17 @@ export function DecisionStep({ job }: { job: UploadJob }) {
               </Button>
             </div>
           )}
+          {drafts.some(({ draft }) => draft.action !== 'skip') && <ScheduleField value={when} onChange={setWhen} />}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button disabled={approve.isPending} onClick={submit}>
-              {missingSource && drafts.some(({ draft }) => draft.action === 'upload')
-                ? t('upload.decision.confirmAnyway')
-                : t('upload.decision.confirm')}
+            <Button disabled={approve.isPending || (when !== null && fromLocalInput(when) === null)} onClick={submit}>
+              {when !== null
+                ? t('upload.decision.confirmScheduled')
+                : missingSource && drafts.some(({ draft }) => draft.action === 'upload')
+                  ? t('upload.decision.confirmAnyway')
+                  : t('upload.decision.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

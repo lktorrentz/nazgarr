@@ -100,6 +100,7 @@
  "upload_decision_missing": "{tracker} has no decision.",
  "upload_description_template_invalid": "The description template cannot be used: {error}",
  "upload_disk_missing": "The disk of this upload no longer exists.",
+ "upload_dupe_appeared": "Not sent: the same release showed up on the tracker in the meantime.",
  "upload_dupe_no_download_link": "The tracker didn't give a download link for this torrent.",
  "upload_dupe_not_found": "Torrent {id} is not among the dupe-check results.",
  "upload_episode_order_unknown": "The episode ordering {order} is not available for this series.",

@@ -767,6 +767,8 @@ CREATE TABLE IF NOT EXISTS upload_job (
     split_from_id           INTEGER REFERENCES upload_job(id) ON DELETE SET NULL,
                                              -- an episode of an incomplete season pack split into
                                              -- one upload per episode (nazgarr/upload/split.py)
+    scheduled_at            TIMESTAMP,       -- approved to start at this time (UTC), not right away:
+                                             -- the worker leaves it queued until then (nazgarr/upload/worker.py)
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at             TIMESTAMP

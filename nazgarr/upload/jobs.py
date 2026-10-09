@@ -151,6 +151,39 @@ def _emit_finished(session: Session, job: UploadJob) -> None:
     session.commit()
 
 
+def as_utc(value: datetime | None) -> datetime | None:
+    """SQLite restituisce le date senza fuso: sono UTC."""
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def start_time(when: datetime | None, now: datetime | None = None) -> datetime | None:
+    """L'ora di partenza scelta, in UTC; None (subito) se manca o è già passata."""
+    when = as_utc(when)
+    if when is None or when <= (now or datetime.now(UTC)):
+        return None
+    return when.astimezone(UTC)
+
+
+def is_due(job: UploadJob, now: datetime | None = None) -> bool:
+    """Un upload programmato parte solo dall'ora scelta (scheduled_at)."""
+    return job.scheduled_at is None or as_utc(job.scheduled_at) <= (now or datetime.now(UTC))
+
+
+def schedule(session: Session, job: UploadJob, when: datetime | None) -> None:
+    """Cambia l'ora di partenza di un upload in coda; None o un'ora passata:
+    subito. Il chiamante sveglia il worker."""
+    if job.status != "queued":
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    job.scheduled_at = start_time(when)
+    if job.scheduled_at is None:
+        log_event(session, job, "job_start_now")
+    else:
+        log_event(session, job, "job_scheduled", at=job.scheduled_at.isoformat())
+    session.commit()
+
+
 def default_client_id(session: Session, tracker: Tracker) -> int | None:
     """Il client del tracker se esiste ed è abilitato, altrimenti il primo
     abilitato: la stessa regola del reseeding (nazgarr/reseed/review.py::_client_for)."""
