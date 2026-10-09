@@ -234,7 +234,7 @@ export function PosterView() {
           }}
           className="hidden max-w-full min-w-0 sm:flex"
         >
-          <TabsList className="max-w-full justify-start overflow-x-auto">
+          <TabsList className="scroll-strip max-w-full justify-start">
             {STATUS_OPTIONS.map((option) => (
               <TabsTrigger key={option.value} value={option.value}>
                 {option.label} ({summary[option.value]?.count ?? 0})
