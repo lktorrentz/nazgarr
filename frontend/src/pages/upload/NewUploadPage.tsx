@@ -91,15 +91,18 @@ export function NewUploadPage() {
     )
   }
 
+  // min-w-0 su ogni figlio delle griglie: un percorso lungo senza spazi
+  // (troncato) le allargherebbe fino alla sua larghezza, e Sfoglia e Avvia
+  // finivano tagliati fuori dalla scheda.
   return (
-    <div className="grid min-w-0 gap-4">
+    <div className="grid min-w-0 gap-4 [&>*]:min-w-0">
       <ImageHostWarning />
       <Card>
         <CardHeader>
           <CardTitle>{t('upload.newUpload')}</CardTitle>
           <CardDescription>{t('upload.newUploadDescription')}</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-6">
+        <CardContent className="grid gap-6 [&>*]:min-w-0">
           {pack ? (
             <div className="grid gap-1.5">
               <Label>{t('upload.source')}</Label>
@@ -121,7 +124,7 @@ export function NewUploadPage() {
               </Button>
             </div>
           ) : (
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5 [&>*]:min-w-0">
             <Label>{t('upload.source')}</Label>
             <div className="flex gap-2">
               <button
@@ -136,8 +139,13 @@ export function NewUploadPage() {
                     <FileVideoIcon className="size-4 shrink-0 text-muted-foreground" />
                   )
                 ) : null}
-                <span className={cn('truncate', !source && 'text-muted-foreground')}>
-                  {source ? source.relativePath : t('upload.sourcePlaceholder')}
+                {/* Si tronca l'inizio del percorso, non il nome del file in fondo
+                    (direzione rtl, col testo isolato in un bdi, come nel selettore). */}
+                <span
+                  className={cn('min-w-0 truncate [direction:rtl]', !source && 'text-muted-foreground')}
+                  title={source?.relativePath}
+                >
+                  <bdi>{source ? source.relativePath : t('upload.sourcePlaceholder')}</bdi>
                 </span>
               </button>
               <Button variant="outline" onClick={() => setPickerOpen(true)}>
