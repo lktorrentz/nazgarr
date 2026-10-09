@@ -419,6 +419,25 @@ def disc_evidence(video: dict, tracks: list[dict], subtitles: list[dict]) -> lis
     return found
 
 
+# L'encoder audio degli streaming di Disney (Disney+, Hulu, ESPN+, Star+):
+# chi codifica un WEB-DL lo lascia nel MediaInfo dell'audio.
+_STREAMING_AUDIO = ("bamtech",)
+
+
+def streaming_audio(tracks: list[dict], mediainfo_text: str | None = None) -> bool:
+    """L'audio viene da uno streaming: BAMTech nel titolo o nella libreria
+    di una traccia audio, o in una sezione Audio del MediaInfo completo (il
+    riepilogo salvato prima non aveva la libreria). Segnalato 2026-10-10."""
+    for track in tracks:
+        text = f"{track.get('title') or ''} {track.get('writing_library') or ''}".lower()
+        if any(name in text for name in _STREAMING_AUDIO):
+            return True
+    for block in re.split(r"\n\s*\n", mediainfo_text or ""):
+        if block.lstrip().lower().startswith("audio") and any(name in block.lower() for name in _STREAMING_AUDIO):
+            return True
+    return False
+
+
 # "Original source medium" del MediaInfo -> la sorgente nei nomi.
 _ORIGIN_SOURCES = (("blu-ray", "BluRay"), ("bd", "BluRay"), ("hd dvd", "HDDVD"), ("dvd", "DVD"))
 
@@ -618,6 +637,15 @@ def release_values(
     named_encode = str(detected.get("video_codec") or "").lower() in ("x264", "x265")
     basis = {"type": "name" if values["type"] not in (None, "ENCODE") or named_encode else None,
              "source": "name" if values.get("source") else None, "evidence": evidence}
+    # Il nome non dice la sorgente, ma l'audio viene da uno streaming
+    # (BAMTech): un WEB-DL, o un WEBRip se il nome dice x264/x265. La
+    # traccia di un encoder nel video non basta: certi servizi la lasciano
+    # anche nei WEB-DL. Prima dei segni di un disco, che a quel punto non servono.
+    if video and not values.get("source") and values["type"] in (None, "ENCODE") \
+            and streaming_audio(tracks, getattr(job, "mediainfo_text", None)):
+        values["type"], values["source"] = ("WEBRIP", "WEBRip") if named_encode else ("WEBDL", "WEB-DL")
+        basis["type"] = "web_audio_encode" if named_encode else "web_audio"
+        basis["source"] = "web_audio"
     # Il nome non dice la sorgente, il MediaInfo sì: un disco (decisione
     # dell'utente, 2026-10-05). Prima del remux qui sotto, che ne ha bisogno.
     if video and not values.get("source") and _disc_source(evidence, has_encoder(video)):

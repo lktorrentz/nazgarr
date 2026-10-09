@@ -515,3 +515,29 @@ def test_a_joined_bdremux_is_a_remux_and_profile_8_makes_it_hybrid():
     assert (detect("Movie.2004.2160p.UHDRemux-GRP")["type"], detect("Movie.2004.2160p.UHDRemux-GRP")["source"]) == (
         "REMUX", "BluRay")
     assert detect("Movie.2004.576p.DVDRemux-GRP")["source"] == "DVD"
+
+
+def test_bamtech_audio_means_a_web_dl(db_session):
+    # Segnalato (2026-10-10): l'audio codificato da BAMTech (Disney+, Hulu,
+    # ESPN+) dice che la sorgente è un WEB-DL, anche quando il nome non lo dice.
+    from nazgarr.upload.naming import detect, release_values, streaming_audio
+
+    video = {"format": "HEVC", "height": 2160, "writing_library": "x265 - 3.5"}  # certi servizi lo lasciano
+    bamtech = {"language": "en", "format": "E-AC-3", "channels": 6, "writing_library": "BAMTech"}
+    mediainfo = {"video": video, "audio": [bamtech]}
+
+    plain = release_values(_job(), detect("film.mkv"), mediainfo, {}, None)
+    assert (plain["type"], plain["source"]) == ("WEBDL", "WEB-DL")
+    assert plain["type_basis"]["type"] == "web_audio" and plain["type_basis"]["source"] == "web_audio"
+    # Il nome dice x265: un encode da quel WEB-DL.
+    encode = release_values(_job(), detect("Film.2023.2160p.x265-GRP"), mediainfo, {}, None)
+    assert (encode["type"], encode["source"]) == ("WEBRIP", "WEBRip")
+    # La sorgente del nome vince sempre.
+    named = release_values(_job(), detect("Film.2023.2160p.BluRay.x265-GRP"), mediainfo, {}, None)
+    assert named["source"] == "BluRay"
+    # Solo nel MediaInfo completo (riepiloghi salvati prima, senza la libreria dell'audio).
+    text = "General\nFormat : Matroska\n\nAudio\nID : 2\nWriting library : BAMTech\n"
+    from_text = release_values(_job(mediainfo_text=text), detect("film.mkv"),
+                               {"video": video, "audio": [{"format": "E-AC-3"}]}, {}, None)
+    assert from_text["source"] == "WEB-DL"
+    assert not streaming_audio([{"title": "English"}], "General\nTitle : BAMTech\n")  # solo nell'audio
