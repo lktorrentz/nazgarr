@@ -70,3 +70,51 @@ def test_the_package_needs_the_same_libraries_as_the_lock():
         if line.strip() and not line.startswith("#")
     ]
     assert project["dependencies"] == [dep for dep in wanted if dep != "supervisor"]
+
+
+def _account_db(tmp_path):
+    """Un config.yaml e un DB con l'account admin, come dopo il setup."""
+    from nazgarr.core import db, migrations, settings_repo
+    from nazgarr.web import auth
+
+    config = tmp_path / "config.yaml"
+    config.write_text(f"data_dir: {tmp_path / 'data'}\n")
+    engine = db.make_engine(str(tmp_path / "data" / "nazgarr.db"))
+    migrations.upgrade(engine)
+    session = db.make_session_factory(engine)()
+    return config, session, settings_repo, auth
+
+
+def test_reset_password_sets_a_new_one_and_logs_every_session_out(tmp_path, monkeypatch):
+    import io
+
+    config, session, settings_repo, auth = _account_db(tmp_path)
+    settings_repo.set_setting(session, "auth_username", "admin")
+    settings_repo.set_setting(session, "auth_password_hash", auth.hash_password("forgotten-one"))
+    version_before = auth.token_version(session)
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("short\n"))
+    assert cli.main(["reset-password", "--config", str(config), "--password-stdin"]) == 2
+    monkeypatch.setattr("sys.stdin", io.StringIO("a-new-password\n"))
+    assert cli.main(["reset-password", "--config", str(config), "--password-stdin"]) == 0
+
+    session.expire_all()
+    assert settings_repo.get_setting(session, "auth_username") == "admin"
+    assert auth.verify_password("a-new-password", settings_repo.get_setting(session, "auth_password_hash"))
+    assert auth.token_version(session) != version_before  # i browser già entrati devono rifare il login
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("another-password\n"))
+    assert cli.main(["reset-password", "--config", str(config), "--password-stdin", "--username", "luca"]) == 0
+    session.expire_all()
+    assert settings_repo.get_setting(session, "auth_username") == "luca"
+
+
+def test_reset_password_without_an_account_points_to_the_setup_code(tmp_path, monkeypatch, capsys):
+    config, _session, _repo, _auth = _account_db(tmp_path)
+    asked = []
+    monkeypatch.setattr("typer.prompt", lambda *a, **k: asked.append(a) or "never-used")
+
+    assert cli.main(["reset-password", "--config", str(config)]) == 2
+
+    assert asked == []  # niente password chiesta per niente
+    assert "setup code" in capsys.readouterr().err

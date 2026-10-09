@@ -2,7 +2,7 @@
 
 The `nazgarr` command does two jobs:
 
-- **Server commands** (`init`, `serve`, `install-service`, `version`) run Nazgarr on this machine. They are described in the README, under "Python package".
+- **Server commands** (`init`, `serve`, `install-service`, `reset-password`, `version`) run Nazgarr on this machine. They are described in the README, under "Python package"; `reset-password` under "Forgot the password?" below.
 - **Client commands** (everything else) talk to a running Nazgarr through its JSON API, the same one the web UI uses. They work on the machine that runs Nazgarr, from another computer, and inside the Docker container.
 
 Every command has its own help: `nazgarr --help`, `nazgarr review --help`, `nazgarr review approve --help`.
@@ -80,6 +80,17 @@ nazgarr logout --revoke   # and revoke it on the server (asks the password)
 ```
 
 A key can also be revoked in the web UI, under Settings › Extensions › API keys.
+
+### Forgot the password?
+
+On the machine that runs Nazgarr, `reset-password` sets a new one straight in its database, and logs out every open session (API keys keep working):
+
+```bash
+docker exec -it nazgarr nazgarr reset-password   # Docker
+nazgarr reset-password                           # Python package
+```
+
+It asks the new password twice; `--password-stdin` reads it from stdin instead, and `--username NAME` changes the username too. The server can keep running. It works only where the database is: from another computer, nobody can reset it.
 
 ### Environment variables
 

@@ -1,7 +1,9 @@
 """L'albero dei comandi di `nazgarr` (Typer): quelli del server (init,
-serve, install-service, version, nazgarr/cli.py) e quelli client, che parlano
-con un'istanza in esecuzione attraverso le API (docs/CLI.md)."""
+serve, install-service, reset-password, version, nazgarr/cli.py) e quelli
+client, che parlano con un'istanza in esecuzione attraverso le API
+(docs/CLI.md)."""
 
+import sys
 from types import SimpleNamespace
 
 import click
@@ -27,7 +29,8 @@ from nazgarr.cli_client.output import EXIT_DECLINED, EXIT_ERROR, EXIT_UNAUTHORIZ
 
 HELP = """Nazgarr from the command line.
 
-Server commands (init, serve, install-service) run Nazgarr on this machine.
+Server commands (init, serve, install-service, reset-password) run Nazgarr on
+this machine.
 Every other command talks to a running instance through its API: log in once
 with `nazgarr login --url http://HOST:3019`, then use it like the web UI.
 
@@ -82,6 +85,20 @@ def build() -> typer.Typer:
     ):
         """Write the systemd (Linux) or launchd (macOS) service file."""
         return server.cmd_install_service(SimpleNamespace(config=config, host=host, port=port, print=print_only))
+
+    @app.command("reset-password", rich_help_panel="Server")
+    def reset_password(
+        config: str = typer.Option(None, "--config", help="Path of config.yaml (default: the one in use)."),
+        username: str = typer.Option(None, "--username", help="Change the username too (default: keep it)."),
+        password_stdin: bool = typer.Option(False, "--password-stdin", help="Read the new password from stdin."),
+    ):
+        """Set a new password for the account (forgotten password). Run it where Nazgarr runs."""
+        def ask() -> str:
+            if password_stdin:
+                return sys.stdin.readline().rstrip("\n")
+            return typer.prompt("New password", hide_input=True, confirmation_prompt=True)
+
+        return server.cmd_reset_password(SimpleNamespace(config=config, username=username, ask=ask))
 
     @app.command(rich_help_panel="Server")
     def version():
