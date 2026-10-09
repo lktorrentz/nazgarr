@@ -136,6 +136,12 @@ class TargetDecision(BaseModel):
 
 class UploadApproveRequest(BaseModel):
     targets: list[TargetDecision]
+    # Parte a quest'ora invece che appena tocca a lui (None o un'ora passata: subito).
+    scheduled_at: datetime | None = None
+
+
+class UploadScheduleRequest(BaseModel):
+    scheduled_at: datetime | None = None  # None: parte appena tocca a lui
 
 
 class UploadVerifyRequest(BaseModel):
@@ -242,6 +248,7 @@ class UploadJobSummary(BaseModel):
     targets: list[UploadTargetResponse]
     origin: str | None = None  # "watch": dalla cartella osservata (nazgarr/upload/watch.py); "pack"
     pack_name: str | None = None  # un pack di file scelti a mano (nazgarr/upload/pack.py)
+    scheduled_at: datetime | None = None  # in coda per partire a quest'ora (UTC)
 
     @classmethod
     def fields_from(cls, j: UploadJob) -> dict:
@@ -253,6 +260,7 @@ class UploadJobSummary(BaseModel):
             error_message=j.error_message, created_at=j.created_at, finished_at=j.finished_at,
             targets=[UploadTargetResponse.from_model(t) for t in j.targets], origin=j.origin,
             pack_name=upload_pack.name(j) if upload_pack.is_pack(j) else None,
+            scheduled_at=upload_jobs.as_utc(j.scheduled_at),
         )
 
     @classmethod
@@ -657,7 +665,22 @@ def approve_upload(
     docs/SPEC.md §9: da qui il worker porta il job fino in fondo."""
     job = _get_job_or_404(session, upload_id)
     try:
-        upload_decision.approve(session, job, [d.model_dump(exclude_unset=True) for d in body.targets])
+        upload_decision.approve(session, job, [d.model_dump(exclude_unset=True) for d in body.targets],
+                                scheduled_at=body.scheduled_at)
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)
+
+
+@router.post("/{upload_id}/schedule", response_model=UploadJobDetail)
+def schedule_upload(
+    upload_id: int, body: UploadScheduleRequest, request: Request, session: Session = Depends(get_session)
+):
+    """L'ora di partenza di un upload in coda: un'altra, o subito (None)."""
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_jobs.schedule(session, job, body.scheduled_at)
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     _worker(request).kick(job.id, job.status)

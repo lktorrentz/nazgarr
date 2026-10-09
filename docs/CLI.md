@@ -280,6 +280,8 @@ nazgarr upload new main --pack torrents/E01/e01.mkv torrents/E02/e02.mkv   # a s
 nazgarr upload ls                    # in progress (--history for the finished ones)
 nazgarr upload show 12               # source, match, trackers, events
 nazgarr upload continue 12           # pick it up where it waits for you
+nazgarr upload continue 12 --at "2026-10-10 21:00"   # approve now, start at that local time
+nazgarr upload schedule 12 --now     # a scheduled upload: start it now (or --at another time)
 nazgarr upload cancel 12
 nazgarr upload rm 12                 # remove it from the history
 ```
@@ -288,7 +290,7 @@ nazgarr upload rm 12                 # remove it from the history
 
 1. **The match.** It shows the TMDB candidates with their confidence and asks which one, or takes the one given with `--tmdb`.
 2. **The decision.** For each tracker it shows the suggested action (upload, reseed or skip), the release name, the IDs, the flags and what the tracker already has. It asks the action and the name, and any missing IDs. Before a reseed it runs the full hash check, if not done yet.
-3. **The summary.** It sums up what will happen and asks to approve. Then it follows the upload until it is done (`--no-wait` to stop following).
+3. **The summary.** It sums up what will happen and asks to approve. Then it follows the upload until it is done (`--no-wait` to stop following). With `--at` it is approved now and starts at that time: the command returns right away.
 
 With `--yes` the proposed values are accepted without asking. It still stops on anything that needs you:
 

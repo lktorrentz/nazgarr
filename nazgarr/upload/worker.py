@@ -18,6 +18,7 @@ import logging
 import threading
 from collections.abc import Callable
 from concurrent.futures import Executor, ThreadPoolExecutor
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -104,17 +105,21 @@ class UploadWorker:
         self._heavy.submit(self._drain_queue)
 
     def _drain_queue(self) -> None:
-        """Esegue i job in coda uno dopo l'altro finché ce ne sono."""
+        """Esegue i job in coda uno dopo l'altro finché ce ne sono. Uno
+        programmato (scheduled_at) aspetta la sua ora: intanto passano gli
+        altri, e lo sveglia il pianificatore (nazgarr/scheduler.py)."""
         try:
             while True:
                 session = self.session_factory()
                 try:
-                    job = (
+                    now = datetime.now(UTC)
+                    jobs = (
                         session.query(UploadJob)
                         .filter(UploadJob.status.in_(HEAVY_STATES))
                         .order_by(UploadJob.status.desc(), UploadJob.queue_position, UploadJob.id)
-                        .first()
+                        .all()
                     )
+                    job = next((j for j in jobs if j.status == "running" or upload_jobs.is_due(j, now)), None)
                     job_id = job.id if job is not None else None
                 finally:
                     session.close()

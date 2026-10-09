@@ -104,6 +104,7 @@ export const errors = {
   'errors.upload_season_required': 'Scegli la stagione.',
   'errors.upload_single_season_required': 'Un {kind} ha esattamente una stagione.',
   'errors.upload_episode_required': 'Scegli il numero dell’episodio.',
+  'errors.upload_dupe_appeared': 'Non inviato: nel frattempo sul tracker è comparsa la stessa release.',
   'errors.upload_job_split': 'Questo upload è stato diviso in episodi: si va avanti dai loro upload.',
   'errors.upload_split_not_a_pack': 'Si divide in episodi solo un season pack di una cartella, al match.',
   'errors.upload_pack_requires_folder': 'Un pack richiede una cartella come sorgente, non un singolo file.',

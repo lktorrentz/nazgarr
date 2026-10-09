@@ -147,6 +147,31 @@ def _scan_watch_folders(session_factory: sessionmaker, worker) -> None:
         session.close()
 
 
+SCHEDULED_UPLOADS_JOB_ID = "upload_scheduled"
+SCHEDULED_UPLOADS_INTERVAL_SECONDS = 30
+
+
+def _start_due_uploads(session_factory: sessionmaker, worker) -> None:
+    """Gli upload programmati la cui ora è arrivata: si sveglia la coda, che
+    li prende nel suo ordine (nazgarr/upload/worker.py)."""
+    from nazgarr.core.models import UploadJob
+    from nazgarr.upload import jobs as upload_jobs
+
+    session = session_factory()
+    try:
+        due = [
+            job for job in session.query(UploadJob).filter(
+                UploadJob.status == "queued", UploadJob.scheduled_at.isnot(None))
+            if upload_jobs.is_due(job)
+        ]
+        if due:
+            worker.kick(due[0].id, "queued")
+    except Exception:
+        logger.exception("Controllo degli upload programmati fallito")
+    finally:
+        session.close()
+
+
 def add_watch_job(scheduler: BackgroundScheduler, session_factory: sessionmaker, worker) -> None:
     """La cartella osservata per le release (nazgarr/upload/watch.py): serve il
     worker degli upload per svegliarlo sui job creati, quindi si aggiunge
@@ -156,6 +181,12 @@ def add_watch_job(scheduler: BackgroundScheduler, session_factory: sessionmaker,
     scheduler.add_job(
         _scan_watch_folders, IntervalTrigger(seconds=upload_watch.INTERVAL_SECONDS),
         args=[session_factory, worker], id=WATCH_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
+    )
+    # Gli upload programmati: anche questo ha bisogno del worker.
+    scheduler.add_job(
+        _start_due_uploads, IntervalTrigger(seconds=SCHEDULED_UPLOADS_INTERVAL_SECONDS),
+        args=[session_factory, worker], id=SCHEDULED_UPLOADS_JOB_ID, replace_existing=True, max_instances=1,
+        coalesce=True,
     )
 
 

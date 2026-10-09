@@ -726,6 +726,8 @@ class UploadJob(Base):
     episode_order_json: Mapped[str | None]
     # Un episodio di una stagione incompleta divisa in episodi (nazgarr/upload/split.py).
     split_from_id: Mapped[int | None] = mapped_column(ForeignKey("upload_job.id", ondelete="SET NULL"))
+    # Approvato per partire a quest'ora (UTC): fino ad allora resta in coda (nazgarr/upload/worker.py).
+    scheduled_at: Mapped[datetime | None]
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime | None] = mapped_column(
         server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP")

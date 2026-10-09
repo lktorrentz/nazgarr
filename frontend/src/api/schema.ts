@@ -1842,6 +1842,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/{upload_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Schedule Upload
+         * @description L'ora di partenza di un upload in coda: un'altra, o subito (None).
+         */
+        post: operations["schedule_upload_api_uploads__upload_id__schedule_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metadata/search": {
         parameters: {
             query?: never;
@@ -4998,6 +5018,8 @@ export interface components {
         UploadApproveRequest: {
             /** Targets */
             targets: components["schemas"]["TargetDecision"][];
+            /** Scheduled At */
+            scheduled_at?: string | null;
         };
         /** UploadCreateRequest */
         UploadCreateRequest: {
@@ -5087,6 +5109,8 @@ export interface components {
             origin?: string | null;
             /** Pack Name */
             pack_name?: string | null;
+            /** Scheduled At */
+            scheduled_at?: string | null;
             /** Source Path */
             source_path: string;
             /**
@@ -5183,6 +5207,8 @@ export interface components {
             origin?: string | null;
             /** Pack Name */
             pack_name?: string | null;
+            /** Scheduled At */
+            scheduled_at?: string | null;
         };
         /** UploadMatchRequest */
         UploadMatchRequest: {
@@ -5318,6 +5344,11 @@ export interface components {
         /** UploadReidentifyRequest */
         UploadReidentifyRequest: {
             forced_ids?: components["schemas"]["ForcedIds"] | null;
+        };
+        /** UploadScheduleRequest */
+        UploadScheduleRequest: {
+            /** Scheduled At */
+            scheduled_at?: string | null;
         };
         /** UploadSplitResponse */
         UploadSplitResponse: {
@@ -8981,6 +9012,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UploadApproveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schedule_upload_api_uploads__upload_id__schedule_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadScheduleRequest"];
             };
         };
         responses: {

@@ -15,6 +15,7 @@ import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useRingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
+import { formatWhen, isFuture } from '@/lib/schedule'
 import { sourceLabel } from '@/lib/upload'
 import { parseApiDate } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -119,7 +120,11 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
               status={
                 <>
                   <UploadStatusBadge status={job.status} />
-                  {job.status === 'queued' && <span className="text-xs text-muted-foreground">#{index + 1}</span>}
+                  {job.status === 'queued' && (
+                    <span className="text-xs text-muted-foreground">
+                      {isFuture(job.scheduled_at) ? t('upload.schedule.badge', { when: formatWhen(job.scheduled_at!) }) : `#${index + 1}`}
+                    </span>
+                  )}
                 </>
               }
             />
