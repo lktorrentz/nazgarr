@@ -187,6 +187,8 @@ def propose(session: Session, job: UploadJob) -> None:
         if (status := audio_language_check(target.tracker.language, mediainfo)) is not None
     }
     analysis["field_options"] = field_options(session, job)
+    # Prima i titoli nelle lingue dei tracker appena letti: li usano anche i nomi dei file generati.
+    job.analysis_json = json.dumps(analysis)
     analysis["file_names"] = file_names_preview(session, job)
     job.analysis_json = json.dumps(analysis)
     session.commit()

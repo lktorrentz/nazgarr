@@ -289,3 +289,49 @@ def test_the_file_names_preview_reads_the_source_once(db_session, decision_job, 
     preview = upload_decision.file_names_preview(db_session, decision_job)
 
     assert preview["previews"] and len(walks) == 1
+
+
+def _itt_only_job(db_session, tmp_path, monkeypatch, *, also_custom=False):
+    from dataclasses import asdict
+    from types import SimpleNamespace
+
+    from nazgarr.upload import identify as upload_identify
+    from nazgarr.upload.source import scan_source
+
+    folder = tmp_path / "Severance.S02.1080p.ATVP.WEB-DL.DDP5.1.H.264-NTb"
+    for e in (1, 2):
+        write_video(folder / f"Severance.S02E0{e}.1080p.ATVP.WEB-DL.DDP5.1.H.264-NTb.mkv")
+    disk = make_disk(db_session, tmp_path)
+    itt = make_tracker(db_session, "itt", with_profile=False)
+    upload_profiles.create_upload_profile(db_session, itt, "itt")
+    itt.language = "it"
+    if also_custom:
+        make_tracker(db_session, "custom")
+    db_session.commit()
+    monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: SimpleNamespace(
+        localized_title=lambda content_type, tmdb_id, language: "Scissione" if language == "it" else None))
+    job = upload_jobs.create_job(db_session, disk, folder.name)
+    upload_jobs.transition(
+        db_session, job, "identifying", "awaiting_decision", kind="season_pack", content_type="tv",
+        title="Severance", year=2022, tmdb_id=95396, seasons_json="[2]",
+        layout_json=json.dumps(asdict(scan_source(str(folder)))),
+    )
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    upload_decision.propose(db_session, job)
+    return json.loads(job.analysis_json)["file_names"]["previews"]["generated"]
+
+
+def test_generated_file_names_use_the_title_in_the_trackers_language(db_session, tmp_path, monkeypatch):
+    # Segnalato (2026-10-09): i nomi generati prendevano il titolo originale (inglese) anche per ITT.
+    generated = _itt_only_job(db_session, tmp_path, monkeypatch)
+
+    assert generated["name"].startswith("Scissione.S02")
+    assert all(name.split("/")[-1].startswith("Scissione.S02E0") for name in generated["files"])
+
+
+def test_trackers_that_disagree_keep_the_original_title(db_session, tmp_path, monkeypatch):
+    generated = _itt_only_job(db_session, tmp_path, monkeypatch, also_custom=True)
+
+    assert generated["name"].startswith("Severance.S02")
