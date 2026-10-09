@@ -112,3 +112,42 @@ def test_a_screenshot_over_the_cap_is_kept_as_a_full_size_jpeg(tmp_path, monkeyp
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", path],
                            check=True, capture_output=True, text=True)
     assert probe.stdout.strip() == "160,120"
+
+
+def test_tonemap_only_touches_an_hdr_source(tmp_path, monkeypatch):
+    # Segnalato (2026-10-09): con "Tonemap HDR" acceso, un WEB-DL SDR senza
+    # metadati di colore faceva fallire ogni screenshot (zscale).
+    from types import SimpleNamespace
+
+    from nazgarr.upload import screenshots
+
+    def track(**values):
+        return SimpleNamespace(**{"transfer_characteristics": None, "hdr_format": None,
+                                  "hdr_format_compatibility": None, **values})
+
+    for found, expected in (
+        (track(), None),
+        (track(transfer_characteristics="BT.709"), None),
+        (track(transfer_characteristics="PQ", hdr_format="SMPTE ST 2086"), "smpte2084"),
+        (track(hdr_format="Dolby Vision", hdr_format_compatibility="HDR10"), "smpte2084"),
+        (track(transfer_characteristics="HLG"), "arib-std-b67"),
+    ):
+        parsed = SimpleNamespace(video_tracks=[found])
+        monkeypatch.setattr(screenshots.mediainfo_util, "parse", lambda path, parsed=parsed: parsed)
+        assert screenshots._hdr_transfer("x.mkv") == expected
+
+
+def test_a_tonemap_ffmpeg_refuses_falls_back_to_plain_screenshots(tmp_path, monkeypatch, caplog):
+    from nazgarr.upload import screenshots
+
+    video = tmp_path / "video.mp4"
+    _make_test_video(video)
+    monkeypatch.setattr(screenshots, "_hdr_transfer", lambda path: "smpte2084")
+    monkeypatch.setattr(screenshots, "_tonemap_filter", lambda transfer: "nosuchfilter")
+
+    paths = generate_screenshots(str(video), str(tmp_path / "shots"), count=2, tonemap=True)
+
+    assert len(paths) == 2
+    failures = [r.getMessage() for r in caplog.records if "Cattura screenshot fallita" in r.getMessage()]
+    assert len(failures) == 1 and "nosuchfilter" in failures[0]  # il motivo di ffmpeg nel log, una volta sola
+    assert any("Tonemap HDR non riuscito" in r.getMessage() for r in caplog.records)

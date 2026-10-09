@@ -19,11 +19,18 @@ class ScreenshotError(Exception):
 
 # Catena di filtri ffmpeg per il tonemap HDR->SDR standard (algoritmo
 # "mobius", lo stesso di Upload-Assistant) — senza, uno screenshot da
-# sorgente HDR risulta lavato/scuro se interpretato come SDR a valle.
-_HDR_TONEMAP_FILTER = (
-    "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
-    "tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
-)
+# sorgente HDR risulta lavato/scuro se interpretato come SDR a valle. Solo
+# per una sorgente HDR, e con transfer, primari e matrice dichiarati ai frame
+# (setparams): da un file senza i metadati di colore (molti WEB-DL) zscale
+# falliva con "no path between colorspaces", e con lui ogni screenshot
+# (segnalato 2026-10-09; i parametri di zscale da soli non bastano). Con i
+# metadati giusti nel file, lo stesso fotogramma di prima.
+def _tonemap_filter(transfer: str) -> str:
+    return (
+        f"setparams=color_trc={transfer}:color_primaries=bt2020:colorspace=bt2020nc,"
+        "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+        "tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+    )
 
 # Sempre PNG a 8 bit per canale (come Upload-Assistant, format=rgb24): da una
 # sorgente a 10 bit ffmpeg scriverebbe un PNG a 16 bit, che in 4K passa i
@@ -33,6 +40,20 @@ _PNG_OUTPUT = {"pix_fmt": "rgb24", "compression_level": 9}
 # alta qualità (qscale 2 = la migliore usata in pratica, poi a scendere).
 MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024
 _JPEG_QUALITIES = (2, 3, 5)
+
+
+def _hdr_transfer(file_path: str) -> str | None:
+    """Il transfer di una sorgente HDR per zscale: "smpte2084" (PQ: HDR10,
+    HDR10+, Dolby Vision) o "arib-std-b67" (HLG). None per una SDR, che non
+    si tocca."""
+    for track in mediainfo_util.parse(file_path).video_tracks:
+        transfer = str(getattr(track, "transfer_characteristics", None) or "")
+        hdr = " ".join(str(getattr(track, key, None) or "") for key in ("hdr_format", "hdr_format_compatibility"))
+        if "HLG" in transfer or "HLG" in hdr:
+            return "arib-std-b67"
+        if "PQ" in transfer or "2084" in transfer or "HDR10" in hdr or "2086" in hdr or "Dolby Vision" in hdr:
+            return "smpte2084"
+    return None
 
 
 def _get_duration_seconds(file_path: str) -> float:
@@ -84,13 +105,19 @@ def is_blank(stats: dict[str, float] | None) -> bool:
     return stats["YAVG"] < MIN_AVERAGE_LUMA or stats["YMAX"] - stats["YMIN"] < MIN_LUMA_RANGE
 
 
+def _ffmpeg_message(error: ffmpeg.Error) -> str:
+    """Le ultime righe di ffmpeg: il motivo vero, che l'eccezione non dice."""
+    lines = (error.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+    return " | ".join(line.strip() for line in lines[-4:]) or "no output from ffmpeg"
+
+
 def _capture(video_path: str, timestamp: float, output_path: str, output_kwargs: dict) -> bool:
     try:
-        ffmpeg.input(video_path, ss=timestamp).output(output_path, **output_kwargs).overwrite_output().run(
-            quiet=True, capture_stdout=True, capture_stderr=True
-        )
-    except ffmpeg.Error:
-        logger.exception("Cattura screenshot fallita a %.1fs per %r", timestamp, video_path)
+        ffmpeg.input(video_path, ss=timestamp).output(output_path, **output_kwargs).overwrite_output().global_args(
+            "-hide_banner", "-loglevel", "error"
+        ).run(quiet=True, capture_stdout=True, capture_stderr=True)
+    except ffmpeg.Error as exc:
+        logger.error("Cattura screenshot fallita a %.1fs per %r: %s", timestamp, video_path, _ffmpeg_message(exc))
         return False
     return os.path.isfile(output_path)
 
@@ -124,7 +151,8 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
     che fallisce viene saltato, non blocca gli altri — solleva
     ScreenshotError solo se NESSUN frame riesce (pochi screenshot sono
     comunque meglio di un upload bloccato del tutto). tonemap=True applica
-    la conversione HDR->SDR (impostazione upload_tonemap_hdr).
+    la conversione HDR->SDR (impostazione upload_tonemap_hdr) a una
+    sorgente HDR; se ffmpeg la rifiuta, gli screenshot si fanno senza.
 
     Un frame nero o piatto (is_blank) si riprova qualche istante più in là
     (RETRY_OFFSETS); se lo sono tutti si tiene quello con più contrasto,
@@ -138,8 +166,9 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
         margin, usable = 0.0, duration
 
     output_kwargs = {"vframes": 1, **_PNG_OUTPUT}
-    if tonemap:
-        output_kwargs["vf"] = _HDR_TONEMAP_FILTER
+    transfer = _hdr_transfer(video_path) if tonemap else None
+    if transfer:
+        output_kwargs["vf"] = _tonemap_filter(transfer)
 
     step = usable / (count + 1)
     paths = []
@@ -150,7 +179,12 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
         for attempt, offset in enumerate((0.0, *RETRY_OFFSETS)):
             timestamp = min(max(base + offset * step, margin), margin + usable)
             candidate = output_path if attempt == 0 else os.path.join(output_dir, f"screenshot_{i}_retry{attempt}.png")
-            if not _capture(video_path, timestamp, candidate, output_kwargs):
+            captured = _capture(video_path, timestamp, candidate, output_kwargs)
+            if not captured and "vf" in output_kwargs:
+                logger.warning("Tonemap HDR non riuscito per %r: screenshot senza", video_path)
+                del output_kwargs["vf"]
+                captured = _capture(video_path, timestamp, candidate, output_kwargs)
+            if not captured:
                 continue
             stats = luma_stats(candidate)
             if not is_blank(stats):
