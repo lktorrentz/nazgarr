@@ -131,6 +131,17 @@ export function useConfirmMatch(uploadId: number) {
   })
 }
 
+// "Dividi in episodi" al match (nazgarr/upload/split.py): conferma il match del
+// pack e lo divide in un upload per episodio.
+export function useSplitUpload(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Schemas['UploadMatchRequest']) =>
+      unwrap(api.POST('/api/uploads/{upload_id}/split', { params: { path: { upload_id: uploadId } }, body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }),
+  })
+}
+
 export function useReidentify(uploadId: number) {
   const queryClient = useQueryClient()
   return useMutation({

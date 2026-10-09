@@ -5,12 +5,15 @@ import type { UploadJob } from '@/api/hooks/uploads'
 import { MatchStep } from '@/components/upload/MatchStep'
 
 const confirm = vi.fn()
+const split = vi.fn()
+const navigate = vi.fn()
 // Gli ordinamenti: nessuno di default (i test di prima), o quelli di Lupin.
 let ordersData: unknown = undefined
 
 vi.mock('@/api/hooks/settings', () => ({ useSetting: () => ({ data: undefined }) }))
 vi.mock('@/api/hooks/uploads', () => ({
   useConfirmMatch: () => ({ mutate: confirm, isPending: false }),
+  useSplitUpload: () => ({ mutate: split, isPending: false }),
   useReidentify: () => ({ mutate: vi.fn(), isPending: false }),
   useEpisodeOrders: () => ({ data: ordersData }),
 }))
@@ -34,6 +37,7 @@ vi.mock('@/api/hooks/metadata', () => ({
   }),
 }))
 vi.mock('@/components/AuthedPoster', () => ({ AuthedPoster: () => null }))
+vi.mock('react-router-dom', async (original) => ({ ...(await original<object>()), useNavigate: () => navigate }))
 
 const job = {
   id: 7, status: 'awaiting_match', kind: 'season_pack', is_dir: true, content_type: 'tv', title: 'Severance',
@@ -52,6 +56,8 @@ afterEach(() => {
   ordersData = undefined
   cleanup()
   confirm.mockClear()
+  split.mockClear()
+  navigate.mockClear()
 })
 
 describe('MatchStep', () => {
@@ -67,6 +73,28 @@ describe('MatchStep', () => {
       { content_type: 'tv', tmdb_id: 95396, kind: 'season_pack', seasons: [2], episode: null, episode_order: null },
       expect.anything(),
     )
+  })
+
+  it('splits an incomplete season into one upload per episode', () => {
+    render(<MatchStep job={job} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split into 5 episodes' }))
+    expect(split).toHaveBeenCalledWith(
+      { content_type: 'tv', tmdb_id: 95396, kind: 'season_pack', seasons: [2], episode: null, episode_order: null },
+      expect.anything(),
+    )
+    split.mock.calls[0][1].onSuccess({ job_ids: [8, 9, 10, 11, 12] })
+    expect(navigate).toHaveBeenCalledWith('/upload')
+  })
+
+  it('does not offer the split for a complete season', () => {
+    const complete = {
+      ...job,
+      layout: { ...(job.layout as object), episodes_by_season: { '2': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] } },
+    } as unknown as UploadJob
+    render(<MatchStep job={complete} />)
+
+    expect(screen.queryByRole('button', { name: /^Split into/ })).toBeNull()
   })
 
   it('offers the specials (season 0) last, even when the source does not say so', () => {

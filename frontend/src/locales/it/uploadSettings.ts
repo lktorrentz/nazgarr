@@ -42,6 +42,9 @@ export const uploadSettings = {
   'uploadSettings.releaserLabel': 'Nome del releaser',
   'uploadSettings.releaserDescription': 'Il gruppo in fondo ai nomi degli upload dalla cartella osservata, e di ogni upload il cui nome non ha un gruppo (es. -NZG). Modificabile su ogni upload.',
   'uploadSettings.autoMatchLabel': 'Match TMDB automatico',
+  'uploadSettings.splitIncompleteLabel': 'Stagioni incomplete in episodi',
+  'uploadSettings.splitIncompleteDescription':
+    'Una stagione che dalla cartella osservata arriva senza tutti gli episodi (es. i primi 2 di 8) diventa un upload per episodio invece di un season pack incompleto. Quando l’ultimo è in seed, la sua cartella si toglie con quello che resta (nfo, sample).',
   'uploadSettings.autoMatchDescription':
     'Per ogni upload, a mano o dalla cartella osservata: un match almeno così sicuro (0-1) viene confermato da solo; sotto, o quando due titoli si somigliano, aspetta te. Cambia match lo riporta indietro. 0 lo disattiva. Predefinito: 0.9.',
   'uploadSettings.autoRenameLabel': 'Rinomina i file in automatico',

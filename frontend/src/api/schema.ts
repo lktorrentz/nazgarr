@@ -1677,6 +1677,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/{upload_id}/split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Split Upload
+         * @description Al match, "Dividi in episodi": conferma il match del season pack e lo
+         *     divide in un upload per episodio (nazgarr/upload/split.py). L'upload
+         *     originale si chiude; gli episodi vanno avanti da soli fino alla decisione.
+         */
+        post: operations["split_upload_api_uploads__upload_id__split_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/{upload_id}/episode-orders": {
         parameters: {
             query?: never;
@@ -5297,6 +5319,11 @@ export interface components {
         UploadReidentifyRequest: {
             forced_ids?: components["schemas"]["ForcedIds"] | null;
         };
+        /** UploadSplitResponse */
+        UploadSplitResponse: {
+            /** Job Ids */
+            job_ids: number[];
+        };
         /** UploadTargetResponse */
         UploadTargetResponse: {
             /** Id */
@@ -8692,6 +8719,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    split_upload_api_uploads__upload_id__split_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadMatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSplitResponse"];
                 };
             };
             /** @description Validation Error */

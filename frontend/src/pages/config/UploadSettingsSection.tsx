@@ -12,21 +12,28 @@ import { FileNamingCard } from '@/pages/config/FileNamingCard'
 import { ImageHostsCard } from '@/pages/config/ImageHostsCard'
 import { autosaveFeedback } from '@/lib/autosave'
 
-function TonemapSwitch() {
-  const { data } = useSetting('upload_tonemap_hdr')
-  const setSetting = useSetSetting('upload_tonemap_hdr')
-  const checked = data?.value === 'true'
+// Un'impostazione sì/no, salvata subito. defaultOn: il valore finché non è mai stata salvata.
+function SettingToggle({ settingKey, label, description, defaultOn = false }: {
+  settingKey: string
+  label: string
+  description: string
+  defaultOn?: boolean
+}) {
+  const { data } = useSetting(settingKey)
+  const setSetting = useSetSetting(settingKey)
+  const value = (data?.value ?? '').toLowerCase()
+  const checked = value === '' ? defaultOn : value === 'true'
 
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="grid min-w-0 gap-0.5">
-        <Label htmlFor="upload-tonemap">{t('uploadSettings.tonemapLabel')}</Label>
-        <p className="text-xs text-muted-foreground">{t('uploadSettings.tonemapDescription')}</p>
+        <Label htmlFor={settingKey}>{label}</Label>
+        <p className="text-xs text-muted-foreground">{description}</p>
       </div>
       <Switch
-        id="upload-tonemap"
+        id={settingKey}
         checked={checked}
-        onCheckedChange={(v) => setSetting.mutate(v ? 'true' : 'false', autosaveFeedback(t('uploadSettings.tonemapLabel')))}
+        onCheckedChange={(v) => setSetting.mutate(v ? 'true' : 'false', autosaveFeedback(label))}
       />
     </div>
   )
@@ -96,7 +103,11 @@ export function UploadImagesSection() {
             type="number"
             placeholder="4"
           />
-          <TonemapSwitch />
+          <SettingToggle
+            settingKey="upload_tonemap_hdr"
+            label={t('uploadSettings.tonemapLabel')}
+            description={t('uploadSettings.tonemapDescription')}
+          />
         </CardContent>
       </Card>
     </>
@@ -127,6 +138,14 @@ export function UploadReleasesSection() {
             description={t('uploadSettings.autoMatchDescription')}
             type="number"
             placeholder="0.9"
+          />
+          {/* Accesa di default (nazgarr/upload/split.py): una stagione incompleta
+              dalla cartella osservata diventa un upload per episodio. */}
+          <SettingToggle
+            settingKey="upload_watch_split_incomplete"
+            label={t('uploadSettings.splitIncompleteLabel')}
+            description={t('uploadSettings.splitIncompleteDescription')}
+            defaultOn
           />
         </CardContent>
       </Card>

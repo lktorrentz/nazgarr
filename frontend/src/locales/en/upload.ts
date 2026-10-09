@@ -128,6 +128,10 @@ export const upload = {
   'upload.match.movieButSeriesDetected':
     'The files look like episodes of a series, but a movie is selected.',
   'upload.match.confirm': 'Confirm match',
+  'upload.match.split': 'Split into {count} episodes',
+  'upload.match.splitHelp': 'Incomplete season ({found}/{expected}): one upload per episode, like the ones released one at a time, instead of a season pack.',
+  'upload.match.splitDone': 'Split into {count} uploads: they are in the queue.',
+  'upload.match.splitFailed': 'Could not split: {message}',
   'upload.match.confirmFailed': 'Could not confirm: {message}',
 
   'upload.analysis.title': 'What Nazgarr found',
@@ -304,6 +308,10 @@ export const upload = {
   'upload.event.identify_done': 'Found {videos} video file(s), {candidates} possible match(es).',
   'upload.event.reidentify_requested': 'Identification requested again.',
   'upload.event.match_confirmed': 'Match confirmed: {title} ({year}).',
+  'upload.event.job_split': 'Incomplete season: split into {count} uploads, one per episode (uploads {jobs}).',
+  'upload.event.split_from': 'Episode of the incomplete season of upload #{upload}.',
+  'upload.event.split_failed': 'Splitting into episodes failed: it goes on as a season pack.',
+  'upload.event.watch_folder_removed': 'No episode left: {folder} removed from the watched folder, with {count} files outside the torrents.',
   'upload.event.job_cancelled': 'Upload cancelled.',
   'upload.event.job_resumed_by_user': "Resumed.",
   'upload.event.job_resumed': 'Resumed after a restart.',

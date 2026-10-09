@@ -104,6 +104,8 @@ export const errors = {
   'errors.upload_season_required': 'Scegli la stagione.',
   'errors.upload_single_season_required': 'Un {kind} ha esattamente una stagione.',
   'errors.upload_episode_required': 'Scegli il numero dell’episodio.',
+  'errors.upload_job_split': 'Questo upload è stato diviso in episodi: si va avanti dai loro upload.',
+  'errors.upload_split_not_a_pack': 'Si divide in episodi solo un season pack di una cartella, al match.',
   'errors.upload_pack_requires_folder': 'Un pack richiede una cartella come sorgente, non un singolo file.',
   'errors.upload_target_not_found': 'Il tracker {id} non fa parte di questo upload.',
   'errors.upload_dupe_not_found': 'Il torrent {id} non è tra i risultati del controllo dupe.',

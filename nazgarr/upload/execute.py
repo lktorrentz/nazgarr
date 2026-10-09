@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from datetime import UTC, datetime
 
 import torf
@@ -677,6 +678,40 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: 
     if kept:
         upload_jobs.log_event(session, job, "watch_source_leftovers", level="warning", count=len(kept),
                               files=kept[:10])
+    session.commit()
+    if job.split_from_id is not None:
+        _remove_split_folder(session, job, watch)
+
+
+def _remove_split_folder(session: Session, job: UploadJob, watch: str) -> None:
+    """Un episodio di una stagione divisa (nazgarr/upload/split.py): quando
+    nella sua cartella della cartella osservata non resta più nessun episodio
+    da caricare, la cartella si toglie con quello che resta (nfo, sample...),
+    decisione dell'utente del 2026-10-09. Un video ancora lì (l'upload di un
+    altro episodio non è finito, o è stato annullato) o un file ancora in
+    scrittura la lasciano dov'è."""
+    root = os.path.realpath(watch)
+    relative = os.path.relpath(os.path.realpath(job.source_path), root)
+    parts = relative.split(os.sep)
+    if len(parts) < 2 or parts[0] in ("", ".", ".."):
+        return  # un file direttamente nella cartella osservata: nessuna cartella sua
+    folder = os.path.join(root, parts[0])
+    if os.path.islink(folder) or not os.path.isdir(folder):
+        return
+    left = []
+    for directory, _dirs, files in os.walk(folder, followlinks=False):
+        for name in files:
+            path = os.path.join(directory, name)
+            inside = os.path.relpath(path, folder)
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            if upload_watch.is_partial(name) or (is_video(name) and upload_inventory.in_torrent(inside, size)):
+                return
+            left.append(inside)
+    shutil.rmtree(folder)
+    upload_jobs.log_event(session, job, "watch_folder_removed", folder=parts[0], count=len(left), files=left[:10])
     session.commit()
 
 

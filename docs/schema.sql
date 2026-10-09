@@ -764,6 +764,9 @@ CREATE TABLE IF NOT EXISTS upload_job (
     episode_order           TEXT,            -- the episode ordering chosen at the first gate (nazgarr/episode_orders.py),
                                              -- e.g. 'sonarr:aired', 'tmdb:default', 'tmdb:group:<id>', 'tvdb:dvd'
     episode_order_json      TEXT,            -- that ordering and the files' one, to translate episode numbers
+    split_from_id           INTEGER REFERENCES upload_job(id) ON DELETE SET NULL,
+                                             -- an episode of an incomplete season pack split into
+                                             -- one upload per episode (nazgarr/upload/split.py)
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at             TIMESTAMP

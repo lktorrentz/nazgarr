@@ -41,6 +41,9 @@ export const uploadSettings = {
     'For what you release yourself: put it in the watched folder of a disk (Settings › Storage) and the upload starts on its own, up to the decision. Once it seeds, it is moved to the releases folder: the watched folder is only a way in.',
   'uploadSettings.releaserLabel': 'Releaser name',
   'uploadSettings.releaserDescription': 'The group at the end of the names of the uploads from the watched folder, and of every upload whose name has no group (e.g. -NZG). Editable on each upload.',
+  'uploadSettings.splitIncompleteLabel': 'Incomplete seasons as episodes',
+  'uploadSettings.splitIncompleteDescription':
+    'A season that reaches the watched folder without every episode (e.g. the first 2 of 8) becomes one upload per episode instead of an incomplete season pack. Once the last one seeds, its folder goes with whatever is left (nfo, sample).',
   'uploadSettings.autoMatchLabel': 'Automatic TMDB match',
   'uploadSettings.autoMatchDescription':
     'For every upload, by hand or from the watched folder: a match at least this sure (0-1) is confirmed on its own; below, or when two titles look alike, it waits for you. Change match takes it back. 0 turns it off. Default: 0.9.',

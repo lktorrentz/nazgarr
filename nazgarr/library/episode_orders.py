@@ -512,13 +512,13 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
         "warning": warning,
         # Gli episodi dei file, tradotti in ogni ordinamento: per i conteggi.
         "found": {
-            key: _translate_found(by_key[files_order], by_key[key], found) if files_order else {}
+            key: translate_found(by_key[files_order], by_key[key], found) if files_order else {}
             for key in keys
         },
     }
 
 
-def _translate_found(source: EpisodeOrder, target: EpisodeOrder, found: dict[int, list[int]]) -> dict[int, list[int]]:
+def translate_found(source: EpisodeOrder, target: EpisodeOrder, found: dict[int, list[int]]) -> dict[int, list[int]]:
     out: dict[int, set[int]] = defaultdict(set)
     for season, eps in found.items():
         for e in eps:

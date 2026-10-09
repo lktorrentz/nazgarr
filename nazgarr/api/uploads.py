@@ -30,6 +30,7 @@ from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import match_score as upload_match_score
 from nazgarr.upload import pack as upload_pack
 from nazgarr.upload import profiles as upload_profiles
+from nazgarr.upload import split as upload_split
 from nazgarr.upload import verify as upload_verify
 from nazgarr.upload.jobs import UploadJobError
 from nazgarr.web.deps import get_or_404, get_session
@@ -501,13 +502,9 @@ def delete_upload(upload_id: int, request: Request, session: Session = Depends(g
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
 
 
-@router.post("/{upload_id}/match", response_model=UploadJobDetail)
-def confirm_match(
-    upload_id: int, body: UploadMatchRequest, request: Request, session: Session = Depends(get_session)
-):
-    """Primo punto di approvazione: il contenuto giusto, e per le serie
-    stagione ed episodio. Da qui il worker analizza da solo."""
-    job = _get_job_or_404(session, upload_id)
+def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest) -> dict | None:
+    """La conferma del match (upload_identify.confirm), con gli errori come
+    risposte HTTP. Restituisce i dettagli TMDB (None senza chiave)."""
     if body.content_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail=coded_detail("invalid_content_type", value=body.content_type))
     try:
@@ -529,8 +526,48 @@ def confirm_match(
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     session.commit()
+    return details
+
+
+@router.post("/{upload_id}/match", response_model=UploadJobDetail)
+def confirm_match(
+    upload_id: int, body: UploadMatchRequest, request: Request, session: Session = Depends(get_session)
+):
+    """Primo punto di approvazione: il contenuto giusto, e per le serie
+    stagione ed episodio. Da qui il worker analizza da solo."""
+    job = _get_job_or_404(session, upload_id)
+    _confirm(session, job, body)
     _worker(request).kick(job.id, job.status)
     return UploadJobDetail.from_model(job)
+
+
+class UploadSplitResponse(BaseModel):
+    job_ids: list[int]
+
+
+@router.post("/{upload_id}/split", response_model=UploadSplitResponse)
+def split_upload(
+    upload_id: int, body: UploadMatchRequest, request: Request, session: Session = Depends(get_session)
+):
+    """Al match, "Dividi in episodi": conferma il match del season pack e lo
+    divide in un upload per episodio (nazgarr/upload/split.py). L'upload
+    originale si chiude; gli episodi vanno avanti da soli fino alla decisione."""
+    job = _get_job_or_404(session, upload_id)
+    if body.kind != "season_pack" or not job.is_dir or upload_pack.is_pack(job):
+        raise HTTPException(status_code=400, detail=coded_detail("upload_split_not_a_pack"))
+    details = _confirm(session, job, body)
+    try:
+        children = upload_split.split(session, job, details)
+    except (UploadJobError, ScopeViolation) as exc:
+        # Il match è confermato: se non si divide, va avanti come pack.
+        session.rollback()
+        _worker(request).kick(job.id, job.status)
+        detail = from_coded_error(exc) if isinstance(exc, UploadJobError) else coded_detail("upload_split_not_a_pack")
+        raise HTTPException(status_code=400, detail=detail) from exc
+    for child in children:
+        if child.status in upload_jobs.WORKER_STATES:
+            _worker(request).kick(child.id, child.status)
+    return UploadSplitResponse(job_ids=[child.id for child in children])
 
 
 @router.get("/{upload_id}/episode-orders", response_model=EpisodeOrdersResponse)
