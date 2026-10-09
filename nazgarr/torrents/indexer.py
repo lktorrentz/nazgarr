@@ -151,6 +151,27 @@ def prune_missing_torrents(
     return len(stale_ids)
 
 
+def client_disks(session: Session, torrent_client: TorrentClient) -> tuple[list[Disk], dict[int, client_paths.Mapping]]:
+    """I dischi di questo client (disk_torrent_client), o tutti se non ne ha
+    nessuno associato, con la traduzione dei percorsi per quelli che ce l'hanno."""
+    links = session.query(DiskTorrentClient).filter_by(torrent_client_id=torrent_client.id).all()
+    disks = [session.get(Disk, link.disk_id) for link in links]
+    if not disks:
+        # Nessuna associazione esplicita: il caso comune (TRaSH Guides) è che
+        # client e Nazgarr vedano gli stessi percorsi, quindi i file del
+        # client si cercano su tutti i dischi per path esatto. L'associazione
+        # serve solo a limitare i dischi o a dare una radice diversa.
+        disks = session.query(Disk).all()
+        logger.debug("Client %r: nessun disco associato, confronto con tutti i dischi", torrent_client.label)
+    disk_by_id = {disk.id: disk for disk in disks}
+    mappings = {
+        link.disk_id: client_paths.Mapping(disk_by_id[link.disk_id].root_path, link.torrent_client_root_path,
+                                           link.local_rel_path)
+        for link in links if link.disk_id in disk_by_id
+    }
+    return disks, mappings
+
+
 def store_client_torrents(
     session: Session, torrent_client: TorrentClient, torrents: list[ClientTorrentInfo], run_id: int
 ) -> dict[str, int]:
@@ -191,21 +212,7 @@ def store_client_torrents(
         session.query(ClientTorrent.info_hash, ClientTorrent.id).filter_by(torrent_client_id=torrent_client.id).all()
     )
 
-    links = session.query(DiskTorrentClient).filter_by(torrent_client_id=torrent_client.id).all()
-    disks = [session.get(Disk, link.disk_id) for link in links]
-    if not disks:
-        # Nessuna associazione esplicita: il caso comune (TRaSH Guides) è che
-        # client e Nazgarr vedano gli stessi percorsi, quindi i file del
-        # client si cercano su tutti i dischi per path esatto. L'associazione
-        # serve solo a limitare i dischi o a dare una radice diversa.
-        disks = session.query(Disk).all()
-        logger.debug("Client %r: nessun disco associato, confronto con tutti i dischi", torrent_client.label)
-    disk_by_id = {disk.id: disk for disk in disks}
-    mapping_by_disk_id = {
-        link.disk_id: client_paths.Mapping(disk_by_id[link.disk_id].root_path, link.torrent_client_root_path,
-                                           link.local_rel_path)
-        for link in links if link.disk_id in disk_by_id
-    }
+    disks, mapping_by_disk_id = client_disks(session, torrent_client)
     seed_lookup_by_disk: dict[int, dict[str, int]] = {
         disk.id: dict(session.query(SeedFile.relative_path, SeedFile.id).filter_by(disk_id=disk.id).all())
         for disk in disks

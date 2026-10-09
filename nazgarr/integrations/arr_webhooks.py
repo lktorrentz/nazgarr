@@ -29,6 +29,7 @@ tracker, come "Cerca ora".
 import json
 import logging
 import os
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -38,7 +39,15 @@ from sqlalchemy.orm import Session
 from nazgarr.adapters.media_resolver.base import ResolvedMedia
 from nazgarr.core import settings_registry
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.core.models import ArrWebhookEvent, Disk, MediaFile, RadarrInstance, SonarrInstance, Tracker
+from nazgarr.core.models import (
+    ArrWebhookEvent,
+    Disk,
+    MediaFile,
+    RadarrInstance,
+    SonarrInstance,
+    TorrentClient,
+    Tracker,
+)
 from nazgarr.integrations import arr
 from nazgarr.library import disk_folders, file_changes, scanner
 from nazgarr.library.resolution import complete_media_items, get_or_create_media_item
@@ -186,6 +195,40 @@ def _forget(session: Session, arr_file: dict) -> MediaFile | None:
     return row if row is not None and scanner.forget_media_file(session, row) else None
 
 
+_INFO_HASH = re.compile(r"[0-9a-f]{40}")
+
+
+def _register_download(session: Session, payload: dict) -> str | None:
+    """Il torrent da cui Radarr/Sonarr hanno importato (downloadId: per un
+    client torrent è l'info hash): i suoi file e il torrent nel client si
+    registrano subito (nazgarr/library/seed_refresh.py), senza aspettare la
+    scansione. Prima, fino alla scansione successiva il file sembrava non in
+    seed: in libreria senza torrent, e la ricerca dopo l'importazione (o
+    "Cerca ora") lo proponeva in reseed (segnalato 2026-10-09). Un download
+    da usenet non ha un info hash: niente da fare."""
+    from nazgarr.integrations import adapter_factory
+    from nazgarr.library import seed_refresh
+
+    info_hash = str(payload.get("downloadId") or "").strip().lower()
+    if not _INFO_HASH.fullmatch(info_hash) or seed_refresh.is_registered(session, info_hash):
+        return None
+    for client in session.query(TorrentClient).filter_by(enabled=True).order_by(TorrentClient.id).all():
+        adapter = None
+        try:
+            adapter = adapter_factory.build_torrent_client_adapter(client)
+            info = adapter.get_torrent_info(info_hash)
+        except Exception:
+            logger.warning("Torrent %s non letto da %r", info_hash, client.label, exc_info=True)
+            continue
+        finally:
+            if adapter is not None:
+                adapter_factory.close_adapter(adapter)
+        if info is not None:
+            linked = seed_refresh.register_client_torrent(session, client, info)
+            return f"its torrent is in {client.label} ({linked} file(s) linked)"
+    return None
+
+
 def _download(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[str, list[int], list[int]]:
     arr_file = _file_of(event.source, payload)
     gone = [row.id for row in (_forget(session, f) for f in payload.get("deletedFiles") or []) if row is not None]
@@ -199,6 +242,9 @@ def _download(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[
     resolved = _identity(event.source, event.instance_id, payload, _first_episode(payload))
     _identify(session, media_file, resolved)
     note = f"added {media_file.relative_path}"
+    torrent = _register_download(session, payload)
+    if torrent:
+        note += f", {torrent}"
     if resolved is None:
         note += " (not identified: the next scan will try TMDB)"
     if gone:

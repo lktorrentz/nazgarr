@@ -224,3 +224,52 @@ def test_an_import_gets_its_poster_and_shows_on_the_dashboard_as_from_radarr(db_
     run = _scan(db_session, disk)
     again = db_session.query(FileChange).filter_by(run_id=run.id).all()
     assert not any(c.relative_path.endswith("Movie (2020).mkv") for c in again)
+
+
+def test_the_torrent_it_was_imported_from_counts_as_seeding_right_away(db_session, tmp_path, monkeypatch):
+    # Segnalato (2026-10-09): dopo un import il file risultava non in seed
+    # fino alla scansione, e la ricerca dopo l'importazione lo proponeva in reseed.
+    from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
+    from nazgarr.core.models import ClientTorrent, TorrentClient
+    from nazgarr.integrations import adapter_factory
+    from nazgarr.library.seeding import seeding_media_file_ids
+    from nazgarr.reseed import matching
+
+    root, disk = _library(db_session, tmp_path)
+    # Scaricato dopo l'ultima scansione: né il file né il torrent sono ancora noti a Nazgarr.
+    download = root / "torrents" / "Movie.2020.1080p.WEB-DL-GRP" / "Movie.2020.1080p.WEB-DL-GRP.mkv"
+    download.parent.mkdir()
+    download.write_bytes(b"m" * 64)
+    (root / "media" / "movies" / "Movie (2020)").mkdir()
+    os.link(download, root / "media" / "movies" / "Movie (2020)" / "Movie (2020).mkv")
+    client = TorrentClient(label="qbit", adapter_type="qbittorrent", base_url="http://q", username="u", password="p")
+    db_session.add(client)
+    db_session.commit()
+    info_hash = "ab" * 20
+    asked = []
+
+    class Client:
+        def get_torrent_info(self, wanted):
+            asked.append(wanted)
+            return ClientTorrentInfo(
+                info_hash=wanted, name="Movie.2020.1080p.WEB-DL-GRP", save_path=str(root / "torrents"),
+                state="uploading", tracker_url="https://tracker.example/announce/key",
+                files=[ClientTorrentFileInfo("Movie.2020.1080p.WEB-DL-GRP/Movie.2020.1080p.WEB-DL-GRP.mkv", 64)])
+
+    monkeypatch.setattr(adapter_factory, "build_torrent_client_adapter", lambda row: Client())
+    payload = _download("/movies/Movie (2020)/Movie (2020).mkv", 64, tmdb=42)
+    payload["downloadId"] = info_hash.upper()  # come lo manda Radarr
+
+    event = _event(db_session, "radarr", _radarr(db_session), payload)
+
+    assert "its torrent is in qbit (1 file(s) linked)" in event.detail
+    media_file = db_session.query(MediaFile).filter_by(
+        relative_path="media/movies/Movie (2020)/Movie (2020).mkv").one()
+    assert media_file.id in seeding_media_file_ids(db_session)
+    assert media_file.id not in {mf.id for mf in matching.orphan_media_files(db_session)}  # niente reseed
+    assert db_session.query(ClientTorrent).one().info_hash == info_hash
+
+    # Un altro evento dello stesso download (un altro episodio, una rinomina): il client non si richiama.
+    from nazgarr.integrations import arr_webhooks as hooks
+    assert hooks._register_download(db_session, {"downloadId": info_hash.upper()}) is None
+    assert asked == [info_hash]
