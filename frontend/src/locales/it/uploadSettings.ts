@@ -34,7 +34,7 @@ export const uploadSettings = {
   'uploadSettings.dragToReorder': 'Trascina per riordinare {label}',
   'uploadSettings.fileNamesTitle': 'Nomi dei file nel torrent',
   'uploadSettings.fileNamesDescription':
-    'Quando su un client non c’è un torrent con gli stessi file (hardlink), i file di un nuovo upload prendono un nome costruito da questo pattern, separato da punti come una release: niente ":" né accenti. Ogni upload può comunque tenere i nomi originali.',
+    'Quando su un client non c’è un torrent con gli stessi file (hardlink), i file di un nuovo upload prendono un nome costruito da questo pattern, separato da punti come una release: niente ":" né accenti. Il titolo è quello che usano i tracker dell’upload, se sono d’accordo (per ITT quello in italiano); se no l’originale. Ogni upload può comunque tenere i nomi originali.',
   'uploadSettings.fileNamesReset': 'Torna al predefinito',
   'uploadSettings.releasesTitle': 'Le tue release',
   'uploadSettings.releasesDescription':

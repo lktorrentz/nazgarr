@@ -32,11 +32,11 @@ from sqlalchemy.orm import Session
 
 from nazgarr.core import settings_registry, settings_repo
 from nazgarr.core.file_types import is_video
-from nazgarr.core.models import ClientTorrent, ClientTorrentFile, SeedFile, UploadJob
+from nazgarr.core.models import ClientTorrent, ClientTorrentFile, SeedFile, TrackerUploadProfile, UploadJob
 from nazgarr.library import episode_orders
 from nazgarr.upload import inventory as upload_inventory
 from nazgarr.upload import pack as upload_pack
-from nazgarr.upload.naming import build_name, detect_with_fallback, release_values
+from nazgarr.upload.naming import build_name, detect_with_fallback, release_values, with_tracker_language
 
 MODES = ("hardlink", "generated", "original")
 SETTING = "upload_file_naming_rules"
@@ -179,10 +179,37 @@ def _hardlink(session: Session, job: UploadJob, files: list[tuple[str, str]]) ->
     return FilePlan("hardlink", torrent.name, [(s, f"{torrent.name}/{p}") for s, p in planned])
 
 
+def _tracker_title(session: Session, job: UploadJob, analysis: dict) -> tuple[str | None, str | None]:
+    """Il titolo dei nomi generati come lo vogliono i tracker dell'upload,
+    se sono d'accordo su quale (locale, locale e originale) e in che lingua:
+    es. ITT, il titolo in italiano (segnalato 2026-10-09: i file prendevano
+    sempre quello originale, in inglese). (scelta, titolo in quella lingua,
+    già letto da TMDB per i nomi delle release: analysis["titles"]);
+    (None, None) se non c'è una scelta comune: le regole dei nomi dei file."""
+    from nazgarr.upload.decision import profile_rules  # import qui: decision importa questo modulo
+
+    choices = set()
+    for target in job.targets:
+        if target.action == "skip":
+            continue
+        profile = session.get(TrackerUploadProfile, target.tracker_id)
+        tracker_rules = with_tracker_language(profile_rules(profile), target.tracker.language) or {}
+        choices.add((tracker_rules.get("title") or "original", tracker_rules.get("title_language")))
+    if len(choices) != 1:
+        return None, None
+    mode, language = choices.pop()
+    if mode == "original" or not language:
+        return None, None
+    return mode, (analysis.get("titles") or {}).get(language)
+
+
 def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], mediainfo: dict | None,
-               overrides: dict, detected: dict) -> FilePlan:
+               overrides: dict, detected: dict, analysis: dict | None = None) -> FilePlan:
     rules_ = rules(session)
-    base_values = release_values(job, detected, mediainfo, overrides, rules_)
+    title_mode, local_title = _tracker_title(session, job, analysis or {})
+    if title_mode is not None:
+        rules_ = {**rules_, "title": title_mode}
+    base_values = release_values(job, detected, mediainfo, overrides, rules_, local_title)
     base = sanitize(build_name(rules_, base_values))
     if not job.title or not base:
         # Senza un titolo (nessun match TMDB) non c'è un nome da costruire:
@@ -208,7 +235,8 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
         season, episode = episodes.get(relative, (None, None))
         if job.content_type == "tv" and episode is not None:
             one = _EpisodeJob(job, season, episode)
-            name = sanitize(build_name(rules_, release_values(one, detected, mediainfo, overrides, rules_)))
+            name = sanitize(build_name(rules_, release_values(one, detected, mediainfo, overrides, rules_,
+                                                              local_title)))
         elif len(videos) == 1:
             name = base
         else:
@@ -371,5 +399,6 @@ def _plan(session: Session, job: UploadJob, mode: str | None, inputs: NameInputs
             return found
         mode = "generated"
     if mode == "generated" and files:
-        return _generated(session, job, files, analysis.get("mediainfo"), overrides, name_detected(session, job))
+        return _generated(session, job, files, analysis.get("mediainfo"), overrides, name_detected(session, job),
+                          analysis)
     return _original(job, files)
