@@ -391,12 +391,18 @@ export const upload = {
     'Encode: il video porta la traccia di un encoder ({encoder}).',
   'upload.typeBasis.type.encoderSettings':
     'Encode: il video porta le impostazioni di un encoder.',
+  'upload.typeBasis.type.web_audio':
+    'WEB-DL: l’audio è codificato da BAMTech, l’encoder degli streaming Disney (Disney+, Hulu, ESPN+).',
+  'upload.typeBasis.type.web_audio_encode':
+    'WEBRip: l’audio viene da uno streaming (BAMTech) e il nome dice che il video è un encode.',
   'upload.typeBasis.type.default':
     'Encode per esclusione: né il nome né il MediaInfo dicono altro.',
   'upload.typeBasis.source.name':
     'Sorgente letta dal nome della release.',
   'upload.typeBasis.source.mediainfo':
     'Sorgente dal MediaInfo: il file viene da un disco.',
+  'upload.typeBasis.source.web_audio':
+    'Sorgente dal MediaInfo: l’audio viene da uno streaming (BAMTech).',
   'upload.typeBasis.source.remux':
     'Sorgente dedotta: un remux viene da un Blu-ray (o da un DVD, se a definizione standard).',
   'upload.typeBasis.evidence':

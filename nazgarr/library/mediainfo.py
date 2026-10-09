@@ -156,6 +156,8 @@ def summarize(media_info: MediaInfo, file_name: str | None = None) -> dict:
             "channel_layout": track.channel_layout,
             "bit_rate": _int(track.bit_rate),
             "default": track.default == "Yes",
+            # Chi ha codificato l'audio (es. BAMTech, gli streaming Disney): naming.streaming_audio.
+            "writing_library": track.writing_library,
         })
     for track in media_info.text_tracks:
         summary["subtitles"].append({

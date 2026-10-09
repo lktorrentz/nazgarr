@@ -323,7 +323,7 @@
     "encoder": null,
     "evidence": [],
     "source": "name",
-    "type": "default"
+    "type": "name"
    }
   },
   "candidates": [
