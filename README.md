@@ -89,6 +89,28 @@ Then `docker compose up -d` and open `http://<host>:3019`. Building from source 
 
 A template is in [`unraid/nazgarr-template.xml`](unraid/nazgarr-template.xml). Save it to `/boot/config/plugins/dockerMan/templates-user/`, then pick it under Docker › Add Container › Template. It uses the `:stable` image, `99:100` as the user, and mounts `/mnt/user/data` as `/data`, like the TRaSH Guides layout.
 
+### Proxmox LXC and network shares (SMB, NFS)
+
+Nazgarr works on a share from a NAS, with a few rules: it writes there, because it creates hardlinks.
+
+- **Keep `/app/config` on a local disk.** The SQLite database doesn't work on a network share, and the container sets the owner of that folder at startup, which SMB refuses.
+- **Media and torrents in the same share,** mounted once (for example `/data` with `media/` and `torrents/` inside). Hardlinks cannot cross two mounts, even when the NAS keeps them on the same disk.
+- **SMB decides owner and permissions at mount time:** `chmod` and `chown` don't change them. Give the share to the user Nazgarr runs as (`PUID`/`PGID`), and keep `serverino` (the default): Nazgarr recognises hardlinks by their inode number.
+- **In an unprivileged LXC, user ids are shifted by 100000:** user 1000 inside the container is 101000 on the Proxmox host. Mount the share on the host for that user, then pass it to the container:
+
+  ```
+  # /etc/fstab on the Proxmox host (PUID 1000 in Docker inside the LXC, or user 1000 in the LXC)
+  //nas/data  /mnt/nas-data  cifs  credentials=/root/.smbcred,uid=101000,gid=101000,file_mode=0664,dir_mode=0775,serverino,_netdev,x-systemd.automount  0 0
+
+  # /etc/pve/lxc/<id>.conf
+  mp0: /mnt/nas-data,mp=/data
+  ```
+
+  Running as root inside the LXC means `100000`; in a privileged LXC there is no shift (`1000`).
+- **NFS behaves better** if your NAS has it: real permissions, hardlinks and inode numbers. Mount it on the host and pass it the same way.
+
+Then check it with "Test disk" in Configuration › Storage: it writes a file, links it between the folders, and says what is wrong.
+
 ### Python package (no Docker)
 
 Every stable release is also on [PyPI](https://pypi.org/project/nazgarr/), with the web UI already built inside, so neither Docker nor Node is needed. You need Python 3.12 or newer, [pipx](https://pipx.pypa.io), `mediainfo` and `ffmpeg`:
