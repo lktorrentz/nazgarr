@@ -1,5 +1,6 @@
 import { CheckIcon, RotateCwIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import {
@@ -10,7 +11,15 @@ import {
   type MetadataDetails,
 } from '@/api/hooks/metadata'
 import { useSetting } from '@/api/hooks/settings'
-import { useConfirmMatch, useEpisodeOrders, useReidentify, type EpisodeOrder, type EpisodeOrders, type UploadJob } from '@/api/hooks/uploads'
+import {
+  useConfirmMatch,
+  useEpisodeOrders,
+  useReidentify,
+  useSplitUpload,
+  type EpisodeOrder,
+  type EpisodeOrders,
+  type UploadJob,
+} from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { ChoiceCards } from '@/components/ChoiceCards'
 import { InfoPopover } from '@/components/InfoPopover'
@@ -525,7 +534,9 @@ export function MatchStep({ job }: { job: UploadJob }) {
   const episode = episodeDraft !== undefined ? episodeDraft : activeOrder && kind === 'episode' && firstFound != null ? firstFound : job.episode ?? null
   const [ids, setIds] = useState(() => fromForcedIds(job.forced_ids))
   const confirm = useConfirmMatch(job.id)
+  const split = useSplitUpload(job.id)
   const reidentify = useReidentify(job.id)
+  const navigate = useNavigate()
 
   const searchResults = useMemo(() => {
     const shown = new Set(candidates.map(keyOf))
@@ -559,19 +570,41 @@ export function MatchStep({ job }: { job: UploadJob }) {
     (isTv && kind !== 'complete_pack' && seasons.length !== 1) ||
     (isTv && kind === 'episode' && episode === null)
 
+  function matchBody() {
+    return {
+      content_type: selected!.content_type,
+      tmdb_id: selected!.tmdb_id,
+      kind: isTv ? kind : 'movie',
+      seasons: isTv ? seasons : [],
+      episode: isTv && kind === 'episode' ? episode : null,
+      episode_order: isTv ? activeOrder?.key ?? null : null,
+    }
+  }
+
   function submit() {
     if (!selected || invalid) return
-    confirm.mutate(
-      {
-        content_type: selected.content_type,
-        tmdb_id: selected.tmdb_id,
-        kind: isTv ? kind : 'movie',
-        seasons: isTv ? seasons : [],
-        episode: isTv && kind === 'episode' ? episode : null,
-        episode_order: isTv ? activeOrder?.key ?? null : null,
+    confirm.mutate(matchBody(), {
+      onError: (error) => toast.error(t('upload.match.confirmFailed', { message: error.message })),
+    })
+  }
+
+  // Una stagione incompleta (es. 2 episodi di 8): si può dividere in un
+  // upload per episodio (nazgarr/upload/split.py). Non un pack di file scelti a mano.
+  const videos = layout?.videos.length ?? 0
+  const expected = seasonRows.find((row) => row.season_number === seasons[0])?.episode_count ?? 0
+  const foundInSeason = (found[String(seasons[0])] ?? []).length
+  const canSplit = isTv && kind === 'season_pack' && seasons.length === 1 && !job.pack_name && videos > 1
+    && expected > 0 && foundInSeason > 0 && foundInSeason < expected
+
+  function splitIntoEpisodes() {
+    if (!selected || invalid) return
+    split.mutate(matchBody(), {
+      onSuccess: (result) => {
+        toast.success(t('upload.match.splitDone', { count: result.job_ids.length }))
+        navigate('/upload')
       },
-      { onError: (error) => toast.error(t('upload.match.confirmFailed', { message: error.message })) },
-    )
+      onError: (error) => toast.error(t('upload.match.splitFailed', { message: error.message })),
+    })
   }
 
   // Sotto lg la colonna di sinistra si scioglie (contents) e la scheda
@@ -722,9 +755,19 @@ export function MatchStep({ job }: { job: UploadJob }) {
               {t('upload.match.movieButSeriesDetected')}
             </p>
           )}
-          <Button disabled={invalid || confirm.isPending} onClick={submit}>
+          <Button disabled={invalid || confirm.isPending || split.isPending} onClick={submit}>
             {t('upload.match.confirm')}
           </Button>
+          {canSplit && (
+            <div className="grid gap-1.5">
+              <p className="text-xs text-muted-foreground">
+                {t('upload.match.splitHelp', { found: foundInSeason, expected })}
+              </p>
+              <Button variant="outline" disabled={confirm.isPending || split.isPending} onClick={splitIntoEpisodes}>
+                {t('upload.match.split', { count: videos })}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

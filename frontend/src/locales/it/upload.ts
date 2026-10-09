@@ -128,6 +128,10 @@ export const upload = {
   'upload.match.movieButSeriesDetected':
     'I file sembrano episodi di una serie, ma è selezionato un film.',
   'upload.match.confirm': 'Conferma il match',
+  'upload.match.split': 'Dividi in {count} episodi',
+  'upload.match.splitHelp': 'Stagione incompleta ({found}/{expected}): un upload per episodio, come quelli usciti uno alla volta, invece di un season pack.',
+  'upload.match.splitDone': 'Diviso in {count} upload: li trovi in coda.',
+  'upload.match.splitFailed': 'Impossibile dividere: {message}',
   'upload.match.confirmFailed': 'Impossibile confermare: {message}',
 
   'upload.analysis.title': 'Cosa ha trovato Nazgarr',
@@ -305,6 +309,10 @@ export const upload = {
   'upload.event.reidentify_requested': 'Richiesta una nuova identificazione.',
   'upload.event.match_confirmed': 'Match confermato: {title} ({year}).',
   'upload.event.job_cancelled': 'Upload annullato.',
+  'upload.event.job_split': 'Stagione incompleta: divisa in {count} upload, uno per episodio (upload {jobs}).',
+  'upload.event.split_from': 'Episodio della stagione incompleta dell’upload #{upload}.',
+  'upload.event.split_failed': 'Divisione in episodi non riuscita: va avanti come season pack.',
+  'upload.event.watch_folder_removed': 'Nessun episodio rimasto: tolta dalla cartella osservata {folder}, con {count} file fuori dai torrent.',
   'upload.event.job_resumed_by_user': "Ripreso.",
   'upload.event.job_resumed': 'Ripreso dopo un riavvio.',
   'upload.event.target_interrupted':

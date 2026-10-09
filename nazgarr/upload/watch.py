@@ -46,7 +46,7 @@ def releaser_name(session: Session) -> str | None:
     return (settings_repo.get_setting(session, RELEASER_SETTING) or "").strip() or None
 
 
-def _is_partial(name: str) -> bool:
+def is_partial(name: str) -> bool:
     return name.lower().endswith(PARTIAL_SUFFIXES)
 
 
@@ -54,7 +54,7 @@ def _signature(path: str) -> tuple[int, float, bool]:
     """(byte totali, ultima modifica, ha file parziali) di un file o di una cartella."""
     if not os.path.isdir(path):
         st = os.stat(path, follow_symlinks=False)
-        return st.st_size, st.st_mtime, _is_partial(path)
+        return st.st_size, st.st_mtime, is_partial(path)
     size, mtime, partial = 0, os.stat(path, follow_symlinks=False).st_mtime, False
     for folder, dirs, files in os.walk(path, followlinks=False):
         for name in dirs:
@@ -63,7 +63,7 @@ def _signature(path: str) -> tuple[int, float, bool]:
             st = os.stat(os.path.join(folder, name), follow_symlinks=False)
             size += st.st_size
             mtime = max(mtime, st.st_mtime)
-            partial = partial or _is_partial(name)
+            partial = partial or is_partial(name)
     return size, mtime, partial
 
 

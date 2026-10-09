@@ -111,10 +111,13 @@ def set_target_status(target: UploadTarget, status: TargetStatus | str) -> None:
     target.status = new.value
 
 
-def transition(session: Session, job: UploadJob, expected: str | tuple[str, ...], new: str, **values) -> bool:
+def transition(
+    session: Session, job: UploadJob, expected: str | tuple[str, ...], new: str, emit: bool = True, **values
+) -> bool:
     """Porta il job da uno degli stati attesi a `new`, insieme agli altri
     valori dati. False (e niente scritto) se nel frattempo lo stato è
-    cambiato, es. l'utente ha annullato. Fa commit."""
+    cambiato, es. l'utente ha annullato. Fa commit. emit=False: niente
+    upload.finished (un job diviso in episodi non è un upload finito)."""
     expected_states = (expected,) if isinstance(expected, str) else expected
     if new in FINAL_STATES and "finished_at" not in values:
         values["finished_at"] = datetime.now(UTC)
@@ -126,7 +129,7 @@ def transition(session: Session, job: UploadJob, expected: str | tuple[str, ...]
     )
     session.commit()
     session.refresh(job)
-    if result.rowcount == 1 and new in FINAL_STATES:
+    if result.rowcount == 1 and new in FINAL_STATES and emit:
         _emit_finished(session, job)
     return result.rowcount == 1
 
@@ -300,6 +303,8 @@ def resume_job(session: Session, job: UploadJob) -> str:
     pubblicato non si ricarica mai). Restituisce il nuovo stato."""
     if job.status != "cancelled":
         raise UploadJobError("upload_job_wrong_status", status=job.status)
+    if any(event.code == "job_split" for event in job.events):
+        raise UploadJobError("upload_job_split")  # continua negli upload degli episodi
     if not os.path.exists(job.source_path):
         raise UploadJobError("upload_source_missing", path=job.relative_path)
     previous = _cancelled_from(job)

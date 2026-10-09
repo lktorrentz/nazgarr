@@ -34,6 +34,7 @@ from nazgarr.upload import analysis as upload_analysis
 from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import match_score as upload_match_score
 from nazgarr.upload import pack as upload_pack
+from nazgarr.upload import split as upload_split
 from nazgarr.upload.source import SourceLayout, scan_source
 
 logger = logging.getLogger(__name__)
@@ -192,24 +193,24 @@ def auto_match_threshold(session: Session) -> float | None:
     return value if 0 < value <= 1 else None
 
 
-def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> None:
+def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> tuple[bool, dict | None]:
     """Per ogni upload, dalla cartella osservata o creato a mano (decisione
     dell'utente, 2026-10-02): il candidato più sicuro, se supera la soglia, si
     conferma da solo, con gli stessi controlli della conferma a mano. Sotto
     soglia, se è ambiguo o se qualcosa non torna (tipo, stagione), il job
     aspetta al match come sempre. Dalla decisione si torna indietro con
-    "Change match" (back_to_match)."""
+    "Change match" (back_to_match). (confermato, dettagli TMDB)."""
     if not candidates:
-        return
+        return False, None
     best = candidates[0]
     threshold = auto_match_threshold(session)
     if threshold is None:
-        return  # spento: niente da dire nel registro
+        return False, None  # spento: niente da dire nel registro
     if best.get("ambiguous") or best.get("confidence", 0) < threshold:
         upload_jobs.log_event(session, job, "auto_match_skipped", confidence=best.get("confidence", 0),
                               threshold=threshold)
         session.commit()
-        return
+        return False, None
     try:
         details = tmdb_client(session).full_details(best["content_type"], best["tmdb_id"])
     except TmdbApiKeyMissingError:
@@ -218,7 +219,7 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
         logger.warning("Dettagli TMDB non disponibili per il match automatico del job %s", job.id, exc_info=True)
         upload_jobs.log_event(session, job, "auto_match_failed", level="warning")
         session.commit()
-        return
+        return False, None
     orders = None
     if best["content_type"] == "tv":
         # L'ordinamento che combacia meglio con i file, come al match a mano;
@@ -238,13 +239,14 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
         session.rollback()
         upload_jobs.log_event(session, job, "auto_match_failed", level="warning", reason=exc.code)
         session.commit()
-        return
+        return False, None
     if order_key and orders["warning"]:
         upload_jobs.log_event(session, job, "episode_order_not_tvdb_aired", level="warning",
                               order=json.loads(job.episode_order_json)["chosen"]["label"])
     upload_jobs.log_event(session, job, "auto_matched", confidence=best["confidence"], title=job.title,
                           year=job.year)
     session.commit()
+    return True, details
 
 
 def confirm(
@@ -295,15 +297,38 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     # Le lingue dei tracker del job, oltre all'inglese di TMDB.
     languages = tuple(sorted({t.tracker.language for t in job.targets if t.tracker.language} - {"en"}))
     candidates = find_candidates(session, forced, layout, languages)
-    if upload_jobs.transition(
+    if not record_identification(session, job, layout, candidates):
+        return
+    confirmed, details = _auto_match(session, job, candidates)
+    # Una stagione incompleta dalla cartella osservata: un upload per episodio.
+    if confirmed and job.origin == "watch" and upload_split.enabled(session) \
+            and upload_split.is_incomplete(job, details):
+        try:
+            children = upload_split.split(session, job, details)
+        except Exception:
+            # Va avanti come pack (è in analisi): meglio che fermo.
+            logger.exception("Upload %s: divisione in episodi non riuscita", job.id)
+            session.rollback()
+            upload_jobs.log_event(session, job, "split_failed", level="warning")
+            session.commit()
+            return
+        for child in children:
+            if worker is not None and child.status in upload_jobs.WORKER_STATES:
+                worker.kick(child.id, child.status)
+
+
+def record_identification(session: Session, job: UploadJob, layout: SourceLayout, candidates: list[dict]) -> bool:
+    """Cosa c'è nella sorgente e i candidati: il job passa al match."""
+    if not upload_jobs.transition(
         session, job, "identifying", "awaiting_match",
         kind=layout.kind, content_type=layout.content_type, title=layout.title, year=layout.year,
         seasons_json=json.dumps(layout.seasons),
         episode=layout.videos[0].episodes[0] if layout.kind == "episode" and layout.videos[0].episodes else None,
         layout_json=json.dumps(asdict(layout)), candidates_json=json.dumps(candidates), stage=None,
     ):
-        upload_jobs.log_event(
-            session, job, "identify_done", kind=layout.kind, videos=len(layout.videos), candidates=len(candidates)
-        )
-        session.commit()
-        _auto_match(session, job, candidates)
+        return False
+    upload_jobs.log_event(
+        session, job, "identify_done", kind=layout.kind, videos=len(layout.videos), candidates=len(candidates)
+    )
+    session.commit()
+    return True

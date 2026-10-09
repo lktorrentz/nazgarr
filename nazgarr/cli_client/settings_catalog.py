@@ -49,6 +49,8 @@ CATALOG = [
     Setting("upload_single_file_folder", "With upload_single_file: keep or remove the folder."),
     Setting("upload_screenshot_count", "Screenshots per upload.", "int"),
     Setting("upload_tonemap_hdr", "Tone map HDR screenshots (true/false).", "bool"),
+    Setting("upload_watch_split_incomplete",
+            "Split an incomplete season from the watched folder into one upload per episode (on by default).", "bool"),
     Setting("upload_description_header", "BBCode added on top of every description.", "lines"),
     Setting("upload_description_signature", "BBCode added at the bottom of every description.", "lines"),
     Setting("image_host_priority", "Image hosts in order, comma separated (e.g. ptscreens,imgbb)."),
