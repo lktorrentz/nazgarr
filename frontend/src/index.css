@@ -121,6 +121,21 @@
     --sidebar-ring: oklch(0.78 0.145 82);
 }
 
+/* Una barra che, quando non ci sta, scorre solo in orizzontale (le tab dei
+   filtri): mai in verticale, e senza scrollbar. Con le scrollbar "classiche"
+   (Windows, macOS con "mostra sempre") un pixel di troppo in altezza faceva
+   comparire quella verticale, che rubando larghezza tirava fuori anche
+   quella orizzontale, con le frecce. Si scorre con trackpad, tocco o
+   Maiusc+rotella. */
+@utility scroll-strip {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

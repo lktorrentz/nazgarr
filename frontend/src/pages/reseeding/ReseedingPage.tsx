@@ -478,7 +478,7 @@ function ExecutionsCard() {
       <CardHeader className="max-sm:grid-cols-1!">
         <CardTitle>{t('reseeding.executions')}</CardTitle>
         <CardDescription>{t('reseeding.executionsHint')}</CardDescription>
-        <CardAction className="max-w-full overflow-x-auto max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-stretch">
+        <CardAction className="scroll-strip max-w-full max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-stretch">
           <ToggleGroupSingle value={filter} onValueChange={(v) => setFilter(v as ExecutionFilter)} variant="outline" size="sm">
             {FILTERS.map((f) => (
               <ToggleGroupItem key={f} value={f}>
