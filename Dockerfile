@@ -31,7 +31,7 @@ RUN npm run build
 # un'immagine scritta dentro COPY --from, e senza lo stage il digest non
 # riceveva mai una proposta di aggiornamento (audit 2026-10-18). Senza
 # --platform: ogni architettura prende il suo binario.
-FROM mwader/static-ffmpeg:7.1@sha256:a8090df5f5608daef387e1b2e93b98aaacb4d92153ad904e7d715c725724fca4 AS ffmpeg
+FROM mwader/static-ffmpeg:9.0@sha256:b90574a4e2ae62b763c39c384526689e7eb435da6398f4fb3f6c3f1c6a14ce33 AS ffmpeg
 
 # Stage finale: backend Python + frontend statico servito dallo stesso
 # container (nazgarr/web/frontend.py) - un solo container con supervisord, un solo processo (CLAUDE.md).
