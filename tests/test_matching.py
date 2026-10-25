@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from nazgarr.adapters.tracker.base import TorrentCandidate
 from nazgarr.core.models import Candidate, Disk, MediaFile, MediaItem, SeedFile, Tracker
 from nazgarr.reseed import matching, pipeline
@@ -290,3 +292,71 @@ def test_the_matching_index_holds_only_files_from_the_latest_scan(db_session, tm
 
     assert [mf.relative_path for files in local.media_by_key.values() for mf in files] == ["media/Here.mkv"]
     assert list(local.seed_by_path) == [(disk.id, "torrents/Here.mkv")]
+
+
+# --- Torznab: un catalogo che non elenca i file (issue #33) ------------------
+
+
+class _MediaQueryAdapter(FakeTrackerAdapter):
+    def __init__(self, candidates):
+        super().__init__(candidates)
+        self.queries = []
+
+    def search_media(self, query):
+        self.queries.append(query)
+        return self._candidates
+
+
+def test_search_media_receives_the_library_identity(db_session, monkeypatch):
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    ctx, anchor = _anchor_ctx(db_session, [])
+    anchor.media_item.title, anchor.media_item.year, anchor.media_item.imdb_id = "Movie", 2024, "tt0816692"
+    ctx.tracker_adapter = _MediaQueryAdapter([])
+
+    matching.match_file(ctx, anchor, anchor.media_item_id, 157336)
+
+    (query,) = ctx.tracker_adapter.queries
+    assert (query.tmdb_id, query.content_type, query.title, query.year, query.imdb_id, query.season) == (
+        157336, "movie", "Movie", 2024, "tt0816692", None)
+
+
+def test_an_unlisted_torrent_takes_its_structure_from_the_torrent(db_session, monkeypatch):
+    # Il titolo Torznab non è un nome di file: la struttura (e la verifica)
+    # vengono dal .torrent, scaricato perché la dimensione può contenere il file.
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    torrent = _torrent_bytes("Movie.2024.1080p-GRP", {"Movie.2024.1080p-GRP.mkv": 1000, "Movie.2024.1080p-GRP.nfo": 50})
+    ctx, anchor = _anchor_ctx(db_session, [_tc(
+        name="Movie 2024 1080p GRP", size_bytes=1050, folder=None, file_list=None, file_sizes=None,
+        download_link="https://prowlarr.example/1/download?apikey=k",
+    )])
+    downloads = []
+    ctx.tracker_adapter.download_torrent = lambda url: downloads.append(url) or torrent
+
+    (c,) = matching.match_file(ctx, anchor, anchor.media_item_id, 157336)
+
+    assert downloads == ["https://prowlarr.example/1/download?apikey=k"]
+    assert c.folder == "Movie.2024.1080p-GRP"
+    assert {f.torrent_path for f in c.files} == {"Movie.2024.1080p-GRP.mkv", "Movie.2024.1080p-GRP.nfo"}
+
+
+def test_an_unlisted_torrent_too_small_or_too_big_is_not_downloaded(db_session, monkeypatch):
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    candidates = [
+        _tc(torrent_id_remote="small", size_bytes=999, file_list=None, file_sizes=None, download_link="https://x/1"),
+        _tc(torrent_id_remote="pack", size_bytes=10**10, file_list=None, file_sizes=None, download_link="https://x/2"),
+    ]
+    ctx, anchor = _anchor_ctx(db_session, candidates)
+    ctx.tracker_adapter.download_torrent = lambda url: pytest.fail(f"scaricato {url}")
+
+    assert matching.match_file(ctx, anchor, anchor.media_item_id, 157336, frozenset({matching.SINGLE})) == []
+
+
+def test_an_unlisted_single_file_without_a_torrent_is_not_executable(db_session, monkeypatch):
+    # Con file_count=1 si valuta dal catalogo, ma senza .torrent il titolo non
+    # può fare da nome del file: niente proposta eseguibile.
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    c = _match_one(db_session, _tc(
+        name="Movie 2024 1080p GRP", size_bytes=1000, folder=None, file_list=None, file_sizes=None,
+        file_count=1, download_link=None,
+    ))
+    assert c.confidence == matching.CONFIDENCE_NO_MATCH

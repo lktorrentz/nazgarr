@@ -106,6 +106,23 @@ class TorrentCandidate:
     # utile per un futuro motore di matching season-pack-aware (fuori scope in questa fase,
     # vedi nazgarr/reseed/matching.py) — il blob media_info per un pack è la concatenazione dei report
     # per-file, mediainfo_unique_id da solo cattura solo il primo.
+    # Quanti file ha il torrent, se il tracker lo dice ma non ne elenca i nomi
+    # (Torznab: attributo "files"). Con file_list None, 1 = file singolo.
+    file_count: int | None = None
+
+
+@dataclass(frozen=True)
+class MediaQuery:
+    """Cosa si cerca, per un adapter che sa cercare anche per altri
+    identificativi o per titolo (search_media): tmdb_id c'è sempre, il resto
+    se la libreria lo conosce. season solo per una serie."""
+
+    tmdb_id: int
+    content_type: Literal["movie", "tv"] | None = None
+    imdb_id: str | None = None
+    title: str | None = None
+    year: int | None = None
+    season: int | None = None
 
 
 @dataclass
@@ -146,6 +163,12 @@ class TrackerAdapter(ABC):
         pagina; se il tracker ne ha più di quanti l'adapter ne legge, una
         CatalogResults con truncated=True (vedi catalog_truncated)."""
         raise NotImplementedError
+
+    def search_media(self, query: MediaQuery) -> list[TorrentCandidate]:
+        """Come search_by_tmdb, per un adapter che può usare anche gli altri
+        dati del contenuto (Torznab: imdbid, titolo). Di default la ricerca
+        per tmdb_id: per UNIT3D nulla cambia."""
+        return self.search_by_tmdb(query.tmdb_id)
 
     def get_own_history(self) -> list[TorrentRecord]:
         """Storico personale (upload + download), se il tracker/adapter lo

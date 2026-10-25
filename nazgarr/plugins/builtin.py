@@ -13,6 +13,7 @@ from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
 from nazgarr.adapters.torrent_client.rtorrent import RTorrentAdapter
 from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
 from nazgarr.adapters.tracker.base import Unit3dTrackerAdapter
+from nazgarr.adapters.tracker.torznab import TorznabTrackerAdapter
 from nazgarr.bundled import imageride, imgbb, passtheima, ptscreens
 from nazgarr.plugins import switch
 from nazgarr.plugins.registry import AdapterContext, AdapterSpec, ConfigField, register, registering_as
@@ -59,12 +60,25 @@ def _unit3d(ctx: AdapterContext) -> Unit3dTrackerAdapter:
     )
 
 
+def _torznab(ctx: AdapterContext) -> TorznabTrackerAdapter:
+    # base_url è l'URL dell'endpoint Torznab, api_token la sua API key.
+    tracker = ctx.row
+    return TorznabTrackerAdapter(
+        base_url=tracker.base_url, api_key=tracker.api_token,
+        rate_limit_per_min=tracker.rate_limit_per_min or 30, shared=True,
+    )
+
+
 register(AdapterSpec("torrent_client", "qbittorrent", "qBittorrent", _qbittorrent))
 register(AdapterSpec("torrent_client", "qui", "qui", _qui))
 register(AdapterSpec("torrent_client", "deluge", "Deluge", _deluge))
 register(AdapterSpec("torrent_client", "transmission", "Transmission", _transmission))
 register(AdapterSpec("torrent_client", "rutorrent", "rTorrent / ruTorrent", _rtorrent))
 register(AdapterSpec("tracker", "unit3d", "UNIT3D", _unit3d))
+register(AdapterSpec(
+    "tracker", "torznab", "Torznab", _torznab,
+    description="Any Torznab endpoint (Prowlarr, Jackett, ...): search, matching, reseed and cross-seed. No upload.",
+))
 
 for _name, _module in BUNDLED.items():
     with registering_as(_name):

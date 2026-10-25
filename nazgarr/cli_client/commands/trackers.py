@@ -82,7 +82,7 @@ def add_tracker(
     label: str = typer.Argument(None, help="A name for the tracker (from the preset if missing)."),
     preset: str = typer.Option(None, "--preset", help="A known tracker (see `nazgarr tracker presets`)."),
     url: str = typer.Option(None, "--url", help="Site address, e.g. https://tracker.example."),
-    adapter_type: str = typer.Option("unit3d", "--type", help="unit3d (or a plugin type)."),
+    adapter_type: str = typer.Option("unit3d", "--type", help="unit3d, torznab (search and reseed only) or a plugin type."),
     with_announce: bool = typer.Option(False, "--announce", help="Ask the announce URL too (needed only to upload)."),
     client_ref: str = typer.Option(None, "--client", help="Torrent client that seeds for it (name or ID)."),
     language: str = typer.Option(None, "--language", help="Its language (ISO 639-1, e.g. it)."),
@@ -92,7 +92,8 @@ def add_tracker(
     profile: bool = typer.Option(True, "--profile/--no-profile", help="Create the known upload profile."),
     token_stdin: bool = typer.Option(False, "--token-stdin", help="Read the API token from stdin."),
 ):
-    """Add a tracker. The API token is asked (UNIT3D: your profile › Settings › API key)."""
+    """Add a tracker. The API token is asked (UNIT3D: your profile › Settings › API key; Torznab: the
+    endpoint's API key, with --url the Torznab URL, e.g. http://prowlarr:9696/1/api)."""
     client = api(ctx)
     bundled = None
     if preset:

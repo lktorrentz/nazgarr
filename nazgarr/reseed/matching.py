@@ -28,6 +28,7 @@ from sqlalchemy import exists
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.adapters.tracker.base import (
+    MediaQuery,
     NotSupportedError,
     TrackerAdapter,
     TrackerRateLimitedError,
@@ -44,6 +45,7 @@ from nazgarr.core.models import (
     MatchAttempt,
     MatchReview,
     MediaFile,
+    MediaItem,
     SeedFile,
     SeedJob,
     Tracker,
@@ -466,6 +468,40 @@ def _drop_stale(ctx: MatchContext, media_item_id: int, anchor: MediaFile | SeedF
             ctx.session.expunge(row)
 
 
+# Un torrent di cui il catalogo non elenca i file (Torznab) si scarica per
+# valutarlo solo se la sua dimensione può contenere il file cercato: per un
+# file singolo, al più questo in più (un .nfo, i sottotitoli, un sample).
+_EXTRAS_SLACK_BYTES = 100 * 1024 * 1024
+
+
+def _search(ctx: MatchContext, media_item_id: int, tmdb_id: int):
+    """La ricerca sul catalogo: con search_media gli altri dati del
+    contenuto (imdb, titolo, stagione) per un adapter che li usa (Torznab),
+    se no per tmdb_id (un plugin o un adapter che non deriva da
+    TrackerAdapter)."""
+    search_media = getattr(ctx.tracker_adapter, "search_media", None)
+    if search_media is None:
+        return ctx.tracker_adapter.search_by_tmdb(tmdb_id)
+    item = ctx.session.get(MediaItem, media_item_id)
+    return search_media(MediaQuery(
+        tmdb_id=tmdb_id,
+        content_type=item.content_type if item is not None else None,
+        imdb_id=item.imdb_id if item is not None else None,
+        title=item.title if item is not None else None,
+        year=item.year if item is not None else None,
+        season=item.season_number if item is not None and item.content_type == "tv" else None,
+    ))
+
+
+def _may_contain(tc, anchor: MediaFile | SeedFile, formats: frozenset[str]) -> bool:
+    """Per un torrent senza elenco dei file: se nome e dimensione lo rendono
+    un candidato da scaricare. Più piccolo del file cercato no; più grande di
+    un file singolo coi suoi extra solo se si cercano anche i pack."""
+    if tc.size_bytes < anchor.size_bytes:
+        return False
+    return PACK in formats or tc.size_bytes <= anchor.size_bytes * 1.01 + _EXTRAS_SLACK_BYTES
+
+
 def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int, tmdb_id: int,
                formats: frozenset[str] = FORMATS, skip: frozenset[str] = frozenset(),
                returned: set[str] | None = None) -> list[Candidate]:
@@ -478,7 +514,7 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
     togliere dalla coda una review su un torrent che il tracker non ha più
     (review.CatalogSearch)."""
     persisted = []
-    for tc in ctx.tracker_adapter.search_by_tmdb(tmdb_id):
+    for tc in _search(ctx, media_item_id, tmdb_id):
         if returned is not None:
             returned.add(tc.torrent_id_remote)
         if tc.torrent_id_remote in skip:
@@ -487,7 +523,18 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
             logger.warning("Torrent %s del tracker %r con nomi di file non validi: ignorato",
                            tc.torrent_id_remote, ctx.tracker_row.label)
             continue
-        layout = layout_from_catalog(tc.file_list, tc.file_sizes, tc.folder, tc.size_bytes, tc.name)
+        # Senza elenco dei file il nome è un titolo, non un percorso: la
+        # struttura vera la dà solo il .torrent.
+        unlisted = tc.file_list is None
+        if unlisted and getattr(tc, "file_count", None) != 1:
+            if not _may_contain(tc, anchor, formats):
+                continue
+            parsed = ctx.fetch_torrent(tc.download_link)
+            if parsed is None:
+                continue
+            layout = layout_from_torrent(parsed)
+        else:
+            layout = layout_from_catalog(tc.file_list, tc.file_sizes, tc.folder, tc.size_bytes, tc.name)
         multi_video = len(layout.videos) > 1
         if multi_video and ctx.skips(anchor, tc.torrent_id_remote):
             continue  # già valutato in questa run per un altro episodio dello stesso pack
@@ -517,11 +564,12 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
                     ctx, layout, anchor, download_link=tc.download_link,
                     unique_ids=tc.mediainfo_unique_ids_by_filename, single_unique_id=tc.mediainfo_unique_id,
                 )
-            elif len(layout.files) > 1:
+            elif len(layout.files) > 1 or unlisted:
                 evaluation.confidence = CONFIDENCE_NO_MATCH
                 evaluation.ambiguity_reason = review.UNREAD_TORRENT
             # Un file solo senza .torrent resta come il catalogo lo descrive:
             # il controllo completo prima di eseguire ne corregge la cartella.
+            # Non se il catalogo non elenca i file: il nome lì è un titolo.
         if multi_video:
             _record_pack(ctx, anchor, tc.torrent_id_remote, evaluation)
         persisted.append(_persist(

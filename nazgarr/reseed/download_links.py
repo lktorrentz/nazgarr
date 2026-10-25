@@ -12,7 +12,11 @@ completo), dall'adapter del tracker: rewrite_download_link con la chiave
 attuale, altrimenti il link del dettaglio del torrent. Così un candidato in
 coda resta valido anche dopo un cambio di chiave. Un tracker il cui adapter
 non sa rimettere la chiave (un plugin senza rewrite_download_link) salva il
-link com'è: non si saprebbe come ricostruirlo."""
+link com'è: non si saprebbe come ricostruirlo.
+
+Un adapter con una sua forma di link (Torznab: la API key dell'endpoint
+nella query) lo dice con strip_download_link e restore_download_link, che
+qui hanno la precedenza."""
 
 import logging
 import re
@@ -42,6 +46,9 @@ def strip_key(link: str | None) -> str | None:
 def stored_link(adapter, link: str | None) -> str | None:
     """Il link da salvare sul candidato: senza chiave, se l'adapter del
     tracker la sa rimettere."""
+    strip = getattr(adapter, "strip_download_link", None)
+    if strip is not None:
+        return strip(link)
     if getattr(adapter, "rewrite_download_link", None) is None:
         return link
     return strip_key(link)
@@ -69,6 +76,9 @@ def _detail_link(adapter, candidate) -> str | None:
 def usable_link(adapter, candidate) -> str | None:
     """Il link con cui scaricare ora il .torrent del candidato."""
     link = candidate.download_link
+    restore = getattr(adapter, "restore_download_link", None)
+    if restore is not None:
+        return restore(link)
     if not is_stripped(link):
         return link
     rewrite = getattr(adapter, "rewrite_download_link", None)

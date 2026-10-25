@@ -42,7 +42,7 @@ It isn't tied to Unraid or to the \*arr stack. Separate disks without FUSE or RA
 - Packs from episodes picked by hand: episodes downloaded one at a time, even ones already seeding with their own torrent, become a season pack or a complete pack.
 
 **Fits your setup**
-- Several torrent clients at once ([qBittorrent](https://www.qbittorrent.org/), [qui](https://github.com/autobrr/qui), [Deluge](https://deluge-torrent.org/), [Transmission](https://transmissionbt.com/), [rTorrent](https://github.com/rakshasa/rtorrent)/[ruTorrent](https://github.com/Novik/ruTorrent)), [UNIT3D](https://github.com/HDInnovations/UNIT3D) trackers, optional [Radarr](https://radarr.video/) and [Sonarr](https://sonarr.tv/).
+- Several torrent clients at once ([qBittorrent](https://www.qbittorrent.org/), [qui](https://github.com/autobrr/qui), [Deluge](https://deluge-torrent.org/), [Transmission](https://transmissionbt.com/), [rTorrent](https://github.com/rakshasa/rtorrent)/[ruTorrent](https://github.com/Novik/ruTorrent)), [UNIT3D](https://github.com/HDInnovations/UNIT3D) trackers, any [Torznab](https://torznab.github.io/spec-1.3-draft/) endpoint ([Prowlarr](https://prowlarr.com/), [Jackett](https://github.com/Jackett/Jackett), …) for search, matching, reseeding and cross-seeding, optional [Radarr](https://radarr.video/) and [Sonarr](https://sonarr.tv/).
 - Works without a media folder too, just for your torrents and uploads.
 - More instances in one web UI: add another Nazgarr (say a seedbox) with one of its API keys and switch between them, or see them all in one overview.
 - Notifications on Discord and Telegram (as many services as you like), plus plugins, signed webhooks and API keys to extend it ([docs/SDK.md](docs/SDK.md)).

@@ -8,6 +8,14 @@ export const trackers = {
     'Precompila etichetta e API URL — restano entrambi modificabili, e un tracker che non è nell’elenco si configura compilando a mano i campi qui sotto.',
   'trackers.label': 'Etichetta',
   'trackers.type': 'Tipo',
+  'trackers.typeTorznab': 'Torznab (Prowlarr, Jackett, …)',
+  'trackers.torznabUrl': 'URL Torznab',
+  'trackers.torznabUrlHelp':
+    'L’URL dell’endpoint come lo mostra Prowlarr o Jackett (Prowlarr: l’URL Torznab di un indexer, es. http://prowlarr:9696/1/api). Serve a cercare, abbinare, reseedare e fare cross-seed — non a caricare.',
+  'trackers.torznabApiKey': 'API key',
+  'trackers.torznabAnnounceUrl': 'Announce URL (facoltativo)',
+  'trackers.torznabAnnounceUrlHelp':
+    'L’announce URL del tracker dietro questo indexer: Nazgarr lo usa per riconoscere i torrent di quel tracker già nei client. Senza, si cerca comunque tutto e i doppioni si saltano per info hash.',
   'trackers.apiUrl': 'API URL',
   'trackers.apiToken': 'API token',
   'trackers.announceUrl': 'Announce URL (solo upload)',
