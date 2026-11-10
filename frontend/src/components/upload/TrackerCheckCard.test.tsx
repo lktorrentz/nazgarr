@@ -101,6 +101,17 @@ describe('TrackerCheckCard', () => {
     expect(screen.queryByText(/claim its resurrection/)).toBeNull()
   })
 
+  it('says Nazgarr claims the resurrection when the tracker has a website session', () => {
+    const passed = { status: 'passed', reason: null, ok: 40, pieces: 40 }
+    const dead = {
+      ...target, auto_resurrection: true, dupes: [dupe('1', 'identical', { seeders: 0, verification: passed })],
+    } as unknown as UploadTarget
+    render(<TrackerCheckCard job={job} target={dead} onClaimedChange={vi.fn()} />)
+
+    expect(screen.getByText(/Nazgarr claims its resurrection on the tracker with your website session/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Claimed' })).toBeNull()
+  })
+
   it("warns when no audio track is in the tracker's language", () => {
     const withLanguage = {
       ...job,

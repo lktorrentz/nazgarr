@@ -42,7 +42,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr.adapters.image_host.base import ImageHostError
 from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError, is_stopped_state, stopped_kwargs
-from nazgarr.adapters.tracker.base import UploadFields, catalog_truncated
+from nazgarr.adapters.tracker.base import NotSupportedError, TrackerWebResult, UploadFields, catalog_truncated
 from nazgarr.core import settings_registry
 from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError
@@ -1096,12 +1096,14 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     session.commit()
     with adapter_factory.tracker(target.tracker) as adapter:
         content = dupe_torrent(adapter, dupe)  # la chiave del tracker rimessa qui
-    # Il controllo completo vale per il .torrent che ha letto: quello che si
-    # aggiunge al client dev'essere lo stesso, non uno riscaricato e cambiato
-    # nel frattempo sul tracker.
-    verified = (dupe.get("verification") or {})
-    if verified.get("status") != "passed" or verified.get("info_hash") != compute_info_hash(content):
-        raise UploadJobError("upload_reseed_torrent_changed", tracker=target.tracker.label)
+        # Il controllo completo vale per il .torrent che ha letto: quello che si
+        # aggiunge al client dev'essere lo stesso, non uno riscaricato e cambiato
+        # nel frattempo sul tracker.
+        verified = (dupe.get("verification") or {})
+        if verified.get("status") != "passed" or verified.get("info_hash") != compute_info_hash(content):
+            raise UploadJobError("upload_reseed_torrent_changed", tracker=target.tracker.label)
+        # Prima di ogni file e del client: il claim vale solo finché il torrent è morto.
+        _claim_resurrection(session, job, target, dupe, adapter)
     torrent_path = os.path.join(ctx["dir"], f"reseed-{target.tracker_id}.torrent")
     with open(torrent_path, "wb") as f:
         f.write(content)
@@ -1143,6 +1145,53 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     target.info_hash = _add_to_client(session, job, target, torrent_path, save_path, hold=True, allowed=allowed,
                                       missing=[e.path for e in missing])
     upload_jobs.log_event(session, job, "reseeded", target=target, torrent=target.reseed_torrent_id)
+
+
+def _claim_resurrection(session: Session, job: UploadJob, target: UploadTarget, dupe: dict, adapter) -> None:
+    """Il claim della resurrection di un torrent morto che questo reseed
+    rimette in seed, con la sessione web salvata sul tracker (decisione
+    dell'utente, 2026-11-10): prima che il client lo annunci, perché UNIT3D
+    lo accetta solo con 0 seeder. Il reseed entra fermo e parte dopo il
+    recheck, ma il claim va prima di tutto: se non riesce, niente si tocca.
+
+    - nessun cookie (o un adapter che non sa farlo): niente, il claim resta
+      a mano come nella decisione;
+    - fatto, non offerto dalla pagina (vivo, troppo recente, già in attesa:
+      anche uno fatto a mano), o rifiutato (un tuo upload): il reseed va avanti;
+    - sessione scaduta o un errore: il reseed si ferma qui con
+      upload_resurrection_failed, così l'occasione non si perde; "Riprova"
+      lo rifà, dopo il claim a mano o un cookie nuovo.
+
+    Solo per un torrent morto quando l'ha letto il dupe check: per uno vivo
+    nessuna richiesta al sito."""
+    if dupe.get("seeders") != 0:
+        return
+    torrent = str(target.reseed_torrent_id)
+    claim = getattr(adapter, "claim_resurrection", None)  # un plugin che non deriva da TrackerAdapter
+    if claim is None:
+        return
+    try:
+        result = claim(torrent)
+    except NotSupportedError:
+        return
+    except Exception as exc:
+        logger.warning("Upload %s: claim della resurrection di %s fallito", job.id, torrent, exc_info=True)
+        result = TrackerWebResult("failed", safe_error(exc))
+    if result.status == "no_session":
+        return
+    detail = result.detail or ""
+    if result.status in ("claimed", "not_offered", "refused"):
+        upload_jobs.log_event(session, job, f"resurrection_{result.status}",
+                              level="warning" if result.status == "refused" else "info", target=target,
+                              torrent=torrent, detail=detail)
+        session.commit()
+        return
+    expired = result.status == "session_expired"
+    upload_jobs.log_event(session, job, "resurrection_session_expired" if expired else "resurrection_failed",
+                          level="error", target=target, torrent=torrent, detail=detail)
+    session.commit()
+    raise UploadJobError("upload_resurrection_failed", tracker=target.tracker.label,
+                         reason="the website session expired" if expired else (detail or result.status))
 
 
 # Gli stati in cui un passo del worker lavora il job: gli stati del worker

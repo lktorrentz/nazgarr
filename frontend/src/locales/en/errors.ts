@@ -5,6 +5,10 @@ export const errors = {
   'errors.auth_already_configured': 'Login already configured.',
   'errors.auth_username_required': 'Username is required.',
   'errors.auth_password_too_short': 'Password must be at least 8 characters.',
+  'errors.upload_resurrection_failed':
+    '{tracker}: the resurrection claim did not go through ({reason}). Nothing was added to the client: claim it on the tracker or save a new website session, then retry.',
+  'errors.tracker_session_cookie_invalid':
+    'That is not a Cookie line (name=value; name=value): copy the whole Cookie request header from the browser.',
   'errors.upload_reseed_needs_verification': '{tracker}: run the full hash check first, only a passed check allows a reseed',
   'errors.upload_reseed_torrent_changed': '{tracker}: the .torrent on the tracker is not the one the full hash check verified, run the check again',
   'errors.upload_source_not_a_file': 'Not a regular file (a symlink?): {path}',

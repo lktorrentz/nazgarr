@@ -50,6 +50,17 @@ export const uploadSettings = {
     'Una cartella con più stagioni che arriva nella cartella osservata (una serie intera) diventa un upload per stagione, ognuno con i soli suoi episodi, invece di un unico complete pack. Una stagione incompleta segue poi l’opzione qui sopra.',
   'uploadSettings.autoMatchDescription':
     'Per ogni upload, a mano o dalla cartella osservata: un match almeno così sicuro (0-1) viene confermato da solo; sotto, o quando due titoli si somigliano, aspetta te. Cambia match lo riporta indietro. 0 lo disattiva. Predefinito: 0.9.',
+  'uploadSettings.identical.title': 'Torrent identico sul tracker',
+  'uploadSettings.identical.description':
+    'Quando il dupe check trova la stessa release già su un tracker, meglio un reseed di un nuovo upload. Un reseed arriva sempre e solo dopo un full hash check con ogni piece uguale.',
+  'uploadSettings.identical.offTitle': 'Decidi tu',
+  'uploadSettings.identical.offHelp': 'Il full hash check lo avvii tu e il reseed lo scegli alla decisione.',
+  'uploadSettings.identical.verifyTitle': 'Hash check da solo',
+  'uploadSettings.identical.verifyHelp':
+    'Il full hash check parte appena l’analisi lo trova; la decisione resta tua, con il reseed già proposto.',
+  'uploadSettings.identical.reseedTitle': 'Hash check e reseed da soli',
+  'uploadSettings.identical.reseedHelp':
+    'Al 100% il reseed si approva e va in coda da solo, se ogni tracker dell’upload ha una risposta certa (un reseed verificato, o i file già in seed lì). Un tracker con la sessione web fa prima il claim della resurrection di un torrent morto.',
   'uploadSettings.dupeThresholdLabel': 'Soglia del dupe check',
   'uploadSettings.dupeThresholdDescription':
     'Quanto di una release sul tracker deve essere noto e uguale alla tua (tipo, risoluzione, codec, HDR, lingue audio, stagione) per suggerire di non caricare (0-100). Sotto, è un possibile dupe e l’upload resta suggerito, con un avviso. Predefinito: 70.',

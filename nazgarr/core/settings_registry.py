@@ -54,6 +54,10 @@ _SPECS = [
     SettingSpec("auto_execute_above_threshold", "bool", False, safety=True),
     SettingSpec("confidence_threshold_auto_media_to_torrent", "float", 0.95, safety=True, minimum=0, maximum=1),
     SettingSpec("confidence_threshold_auto_torrent_to_client", "float", 0.98, safety=True, minimum=0, maximum=1),
+    # Un torrent identico sul tracker durante un upload (nazgarr/upload/auto.py, decisione
+    # dell'utente 2026-11-10): off = decide l'utente; verify = il full hash check parte da
+    # solo; reseed = e a verifica passata il reseed si approva da solo. Spento di default.
+    SettingSpec("upload_identical_auto", "choice", "off", safety=True, choices=("off", "verify", "reseed")),
     # Reseeding
     SettingSpec("cross_seed_search", "bool", True),
     # Pack e singoli dello stesso tracker (nazgarr/library/seeding.py), spento di default.

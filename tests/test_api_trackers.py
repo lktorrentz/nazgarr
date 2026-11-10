@@ -90,3 +90,68 @@ def test_the_rate_limit_must_be_a_usable_number(client):
         "rate_limit_per_min"] == 60
     assert client.patch(f"/api/trackers/{created['id']}", json={"rate_limit_per_min": 0}).json()[
         "rate_limit_per_min"] == 30
+
+
+# --- la sessione web, per il claim della resurrection (decisione dell'utente, 2026-11-10)
+
+
+def _unit3d(client, **extra):
+    return client.post("/api/trackers", json={"label": "ITT", "adapter_type": "unit3d",
+                                              "base_url": "https://itt.example", "api_token": "tok", **extra})
+
+
+def test_the_session_cookie_is_saved_clean_and_never_returned(client):
+    created = _unit3d(client, session_cookie="Cookie: remember_web_x=abc;  unit3d_session=s").json()
+    assert created["has_session_cookie"] is True
+    assert "abc" not in str(client.get("/api/trackers").json())
+
+    from nazgarr.core.models import Tracker
+
+    session = client.app.state.session_factory()
+    try:
+        assert session.get(Tracker, created["id"]).history_session_cookie == "remember_web_x=abc; unit3d_session=s"
+    finally:
+        session.close()
+
+    kept = client.patch(f"/api/trackers/{created['id']}", json={"label": "ITT 2"}).json()
+    assert kept["has_session_cookie"] is True
+    cleared = client.patch(f"/api/trackers/{created['id']}", json={"session_cookie": ""}).json()
+    assert cleared["has_session_cookie"] is False
+
+
+def test_a_cookie_line_that_could_break_a_header_is_refused(client):
+    response = _unit3d(client, session_cookie="a=1\r\nX-Evil: 1")
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "tracker_session_cookie_invalid"
+
+
+def test_a_new_host_drops_the_session_of_the_old_one(client):
+    created = _unit3d(client, session_cookie="a=1").json()
+    moved = client.patch(f"/api/trackers/{created['id']}", json={"base_url": "https://other.example",
+                                                                 "api_token": "tok"}).json()
+    assert moved["has_session_cookie"] is False
+
+
+def test_the_session_check_reports_what_the_site_says(client, monkeypatch):
+    from nazgarr.adapters.tracker.base import NotSupportedError, TrackerWebResult
+    from nazgarr.integrations import adapter_factory
+
+    created = _unit3d(client, session_cookie="a=1").json()
+
+    class _Adapter:
+        result = TrackerWebResult("session_expired")
+
+        def check_web_session(self):
+            if self.result is None:
+                raise NotSupportedError("no site")
+            return self.result
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(adapter_factory, "build_tracker_adapter", lambda row: _Adapter())
+    checked = client.post(f"/api/trackers/{created['id']}/session-check")
+    assert checked.status_code == 200 and checked.json() == {"status": "session_expired", "reason": None}
+
+    _Adapter.result = None
+    assert client.post(f"/api/trackers/{created['id']}/session-check").json()["status"] == "unsupported"

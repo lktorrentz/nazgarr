@@ -57,6 +57,9 @@ CATALOG = [
             "float"),
     Setting("upload_dupe_threshold",
             "Dupe check: a release in the same slot is a dupe from this score (0-100, default 70).", "int"),
+    Setting("upload_identical_auto",
+            "Identical torrent on the tracker: off (you decide), verify (hash check by itself), reseed (and "
+            "reseed by itself at 100%).", "choice", safety=True, choices=("off", "verify", "reseed")),
     Setting("upload_auto_rename", "Rename files in new torrents automatically (true/false).", "bool"),
     Setting("upload_single_file", "A folder with one file becomes a single-file torrent (true/false).", "bool"),
     Setting("upload_single_file_folder", "With upload_single_file: keep or remove the folder.", "choice",

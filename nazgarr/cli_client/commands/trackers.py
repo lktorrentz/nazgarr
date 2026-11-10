@@ -128,6 +128,9 @@ def edit_tracker(
     new_token: bool = typer.Option(False, "--token", help="Ask a new API token."),
     new_announce: bool = typer.Option(False, "--announce", help="Ask a new announce URL."),
     new_rss_key: bool = typer.Option(False, "--rss-key", help="Ask a new RSS key."),
+    new_session: bool = typer.Option(False, "--session-cookie",
+                                     help="Ask the Cookie line of your website login (automatic resurrection claim)."),
+    clear_session: bool = typer.Option(False, "--clear-session-cookie", help="Forget the website session cookie."),
     client_ref: str = typer.Option(None, "--client", help="Torrent client that seeds for it ('' = default)."),
     language: str = typer.Option(None, "--language", help="Its language (ISO 639-1)."),
     min_seed_time: str = typer.Option(None, "--min-seed-time", help="Minimum seed time, e.g. 7d ('' = none)."),
@@ -147,6 +150,12 @@ def edit_tracker(
         body["announce_url"] = secret("New announce URL")
     if new_rss_key:
         body["rss_key"] = secret("New RSS key")
+    if new_session and clear_session:
+        raise fail("Use either --session-cookie or --clear-session-cookie.", EXIT_USAGE)
+    if new_session:
+        body["session_cookie"] = secret("Cookie line of your website login (it opens your whole account)")
+    if clear_session:
+        body["session_cookie"] = ""
     if client_ref is not None:
         body["torrent_client_id"] = (find(client.get("/api/torrent-clients"), client_ref, "torrent client")["id"]
                                      if client_ref else None)
@@ -155,6 +164,25 @@ def edit_tracker(
     updated = client.patch(f"/api/trackers/{found['id']}", body)
     emit(state(ctx), updated, lambda t: console.print(f"Tracker {t['label']} updated."))
     warn_insecure_url(updated, "its API token and keys")
+
+
+_SESSION_CHECK = {
+    "ok": "The website session works: Nazgarr claims resurrections before reseeding dead torrents.",
+    "no_session": "No website session saved (nazgarr trackers edit --session-cookie).",
+    "session_expired": "The website session expired: log in again with \"Remember me\" and save the new cookie.",
+    "failed": "The website could not be read",
+    "unsupported": "This tracker type does not use its website.",
+}
+
+
+@app.command("session-check")
+def session_check(ctx: typer.Context, ref: str = typer.Argument(..., help="Tracker name or ID.")):
+    """Check the saved website session (read-only: one page of the site, nothing is sent)."""
+    client = api(ctx)
+    found = _tracker(client, ref)
+    result = client.post(f"/api/trackers/{found['id']}/session-check", {})
+    emit(state(ctx), result, lambda r: console.print(
+        _SESSION_CHECK.get(r["status"], r["status"]) + (f": {r['reason']}" if r.get("reason") else "")))
 
 
 @app.command("rm")

@@ -187,6 +187,8 @@ export const upload = {
     'Questo torrent non ha seeder: rivendicane la resurrection sul tracker prima che parta il reseed, altrimenti non conta.',
   'upload.dupes.resurrectionOpen': 'Apri sul tracker',
   'upload.dupes.resurrectionClaimed': 'Fatto',
+  'upload.dupes.resurrectionAuto':
+    'Nessun seeder: Nazgarr fa il claim della resurrection sul tracker con la tua sessione web, subito prima di aggiungerlo al client.',
   'upload.dupes.resurrectionDone': 'Resurrection rivendicata',
   'upload.dupes.reason.resolution': 'altra risoluzione',
   'upload.dupes.reason.source': 'altra sorgente',
@@ -409,6 +411,8 @@ export const upload = {
   'upload.event.verify_passed': 'Torrent {torrent}: tutti i pezzi corrispondono ({ok}/{pieces}).',
   'upload.event.verify_failed': 'Torrent {torrent}: non sono gli stessi dati ({reason}).',
   'upload.event.verify_error': 'Torrent {torrent}: impossibile eseguire il controllo ({reason}).',
+  'upload.event.auto_verify_started': 'Torrent {torrent} identico sul tracker: controllo completo degli hash partito da solo.',
+  'upload.event.auto_reseed_approved': 'Ogni piece coincide: reseed approvato da solo su {trackers} (Impostazioni › Upload).',
   'upload.event.verify_interrupted': 'Controllo completo degli hash interrotto da un riavvio.',
   'upload.event.target_approved': 'Decisione: {action}.',
   'upload.event.all_skipped': 'Tutti i tracker saltati: niente da fare.',
@@ -441,6 +445,14 @@ export const upload = {
   'upload.event.already_in_client': 'Già in {client}, nella stessa cartella: si tiene, con un recheck completo.',
   'upload.event.seed_files_linked': '{count} file collegati di nuovo nella cartella per gli upload, per seedarli da lì.',
   'upload.event.seed_retry_own_torrent': "Il tracker non ha ridato il suo .torrent: si è aggiunto quello creato da Nazgarr. Se il tracker l'ha cambiato, il client lo vedrà non registrato: aggiungilo dalla pagina del tracker.",
+  'upload.event.resurrection_claimed': 'Claim della resurrection del torrent {torrent} fatto sul tracker.',
+  'upload.event.resurrection_not_offered':
+    'Il tracker non offre la resurrection del torrent {torrent} (di nuovo seeder, troppo recente, o un claim già in attesa, anche tuo).',
+  'upload.event.resurrection_refused': 'Il tracker ha rifiutato il claim della resurrection del torrent {torrent}: {detail}',
+  'upload.event.resurrection_session_expired':
+    'Claim della resurrection del torrent {torrent} non fatto: la sessione web è scaduta. Niente aggiunto al client.',
+  'upload.event.resurrection_failed':
+    'Claim della resurrection del torrent {torrent} non fatto ({detail}). Niente aggiunto al client.',
   'upload.event.reseeded': 'Torrent {torrent} riaggiunto al client sui tuoi file.',
   'upload.event.added_to_client_held':
     'Aggiunto a {client} fermo, con un recheck completo: parte quando il recheck riesce.',

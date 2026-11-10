@@ -56,6 +56,7 @@ def _unit3d(ctx: AdapterContext) -> Unit3dTrackerAdapter:
     return Unit3dTrackerAdapter(
         base_url=tracker.base_url, api_token=tracker.api_token,
         rate_limit_per_min=tracker.rate_limit_per_min or 30, rss_key=tracker.rss_key, shared=True,
+        session_cookie=tracker.history_session_cookie,
     )
 
 

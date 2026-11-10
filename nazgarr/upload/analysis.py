@@ -22,7 +22,7 @@ import time
 from sqlalchemy.orm import Session
 
 from nazgarr.adapters.tracker.base import catalog_truncated
-from nazgarr.core import events, settings_registry
+from nazgarr.core import settings_registry
 from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.models import (
@@ -40,6 +40,7 @@ from nazgarr.integrations import adapter_factory, arr
 from nazgarr.library import mediainfo as mediainfo_util
 from nazgarr.reseed import download_links
 from nazgarr.torrents import catalog_categories
+from nazgarr.upload import auto as upload_auto
 from nazgarr.upload import decision as upload_decision
 from nazgarr.upload import dovi_probe
 from nazgarr.upload import dupes as upload_dupes
@@ -544,10 +545,9 @@ def handle(session: Session, job: UploadJob, worker) -> None:
 
     if upload_jobs.transition(session, job, "analyzing", "awaiting_decision", stage=None):
         upload_jobs.log_event(session, job, "analysis_done")
-        # Per webhook e notifiche: un upload aspetta la tua decisione.
-        events.emit(session, "upload.ready", {
-            "upload_id": job.id, "title": job.title, "year": job.year, "path": job.relative_path,
-            "origin": job.origin, "trackers": [t.tracker.label for t in job.targets],
-        })
         session.commit()
+        # Un torrent identico: il full hash check e il reseed da soli, se
+        # acceso (nazgarr/upload/auto.py). L'avviso "upload pronto" arriva da
+        # lì, quando la decisione tocca all'utente.
+        upload_auto.settle(session, job, worker, after_analysis=True)
 

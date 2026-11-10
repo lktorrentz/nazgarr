@@ -141,6 +141,26 @@ class UploadWorker:
             session.close()
         for job_id in job_ids:
             self.kick(job_id, statuses[job_id])
+        self._resume_auto_checks()
+
+    def _resume_auto_checks(self) -> None:
+        """I full hash check partiti da soli (nazgarr/upload/auto.py) e
+        fermati da un riavvio ripartono, o l'avviso "upload pronto" che
+        aspettavano arriva adesso: senza, non arrivava mai."""
+        from nazgarr.upload import auto as upload_auto
+
+        session = self.session_factory()
+        try:
+            jobs = (session.query(UploadJob).filter(UploadJob.status == "awaiting_decision",
+                                                    UploadJob.analysis_json.like('%"ready_pending"%')).all())
+            for job in jobs:
+                try:
+                    upload_auto.settle(session, job, self, after_analysis=False)
+                except Exception:
+                    session.rollback()
+                    logger.warning("Upload %s: verifiche automatiche non riprese", job.id, exc_info=True)
+        finally:
+            session.close()
 
     def submit_verify(self, target_id: int, torrent_id_remote: str) -> None:
         self._submit(self._verify, self._run_verify, target_id, torrent_id_remote)
@@ -359,11 +379,14 @@ class UploadWorker:
         self._fail(session, job, code, final=status, **params)
 
     def _run_verify(self, target_id: int, torrent_id_remote: str) -> None:
+        from nazgarr.upload import auto as upload_auto
         from nazgarr.upload import verify as upload_verify
 
         session = self.session_factory()
         try:
             upload_verify.execute(session, target_id, torrent_id_remote)
+            # La verifica dopo, o il reseed approvato da solo (nazgarr/upload/auto.py).
+            upload_auto.after_verify(session, target_id, self)
         except Exception:
             logger.exception("Full hash check del target %s non riuscito", target_id)
         finally:

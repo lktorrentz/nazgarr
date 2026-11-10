@@ -173,7 +173,10 @@ def _render_target(target: dict, draft: dict) -> None:
         console.print(f"  Reseed torrent {draft['reseed_torrent_id']}"
                       + (" (verified)" if _verified(target, draft["reseed_torrent_id"]) else " (not verified)"))
         reseeded = next((d for d in dupes if d.get("torrent_id_remote") == draft["reseed_torrent_id"]), {})
-        if reseeded.get("seeders") == 0:
+        if reseeded.get("seeders") == 0 and target.get("auto_resurrection"):
+            # Con la sessione web del tracker il claim lo fa Nazgarr (2026-11-10).
+            console.print("  No seeders: Nazgarr claims its resurrection on the tracker before adding it.")
+        elif reseeded.get("seeders") == 0:
             # Come nella decisione web (decisione dell'utente, 2026-11-07): un avviso, mai un blocco.
             err_console.print("  [yellow]No seeders: the reseed revives it. Claim its resurrection on the tracker "
                               "before approving, or it does not count.[/yellow]")
