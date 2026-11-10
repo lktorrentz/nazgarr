@@ -50,6 +50,17 @@ export const uploadSettings = {
   'uploadSettings.autoMatchLabel': 'Automatic TMDB match',
   'uploadSettings.autoMatchDescription':
     'For every upload, by hand or from the watched folder: a match at least this sure (0-1) is confirmed on its own; below, or when two titles look alike, it waits for you. Change match takes it back. 0 turns it off. Default: 0.9.',
+  'uploadSettings.identical.title': 'Identical torrent on the tracker',
+  'uploadSettings.identical.description':
+    'When the dupe check finds the same release already on a tracker, a reseed of it is better than a new upload. A reseed only ever follows a full hash check that matched every piece.',
+  'uploadSettings.identical.offTitle': 'You decide',
+  'uploadSettings.identical.offHelp': 'You start the full hash check and choose the reseed at the decision.',
+  'uploadSettings.identical.verifyTitle': 'Hash check by itself',
+  'uploadSettings.identical.verifyHelp':
+    'The full hash check starts as soon as the analysis finds it; the decision stays yours, with the reseed already proposed.',
+  'uploadSettings.identical.reseedTitle': 'Hash check and reseed by itself',
+  'uploadSettings.identical.reseedHelp':
+    'At 100% the reseed is approved and queued by itself, if every tracker of the upload has a sure answer (a verified reseed, or files already seeding there). A tracker with a website session claims the resurrection of a dead torrent first.',
   'uploadSettings.dupeThresholdLabel': 'Dupe check threshold',
   'uploadSettings.dupeThresholdDescription':
     'How much of a release on the tracker must be known and the same as yours (type, resolution, codec, HDR, audio languages, season) to suggest not uploading (0-100). Below it, it is a possible dupe and the upload stays suggested, with a warning. Default: 70.',

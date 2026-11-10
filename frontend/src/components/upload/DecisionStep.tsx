@@ -66,9 +66,11 @@ export function DecisionStep({ job }: { job: UploadJob }) {
 
   // Un reseed che resuscita un torrent senza seeder, senza la resurrection
   // segnata come rivendicata: la conferma lo dice (decisione dell'utente, 2026-11-07).
+  // Non con la sessione web del tracker: lì il claim lo fa Nazgarr (2026-11-10).
   const unclaimed = drafts.filter(
     ({ target, draft }) =>
       draft.action === 'reseed' &&
+      !target.auto_resurrection &&
       !claimed[target.id] &&
       needsResurrectionClaim(target.dupes.find((dupe) => dupe.torrent_id_remote === draft.reseed_torrent_id)),
   )

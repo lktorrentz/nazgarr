@@ -29,6 +29,15 @@ export function useUpdateTracker() {
   })
 }
 
+// Se il cookie della sessione web vale ancora (una pagina del sito in sola
+// lettura): per il claim automatico della resurrection (2026-11-10).
+export function useCheckTrackerSession() {
+  return useMutation({
+    mutationFn: (id: number) =>
+      unwrap(api.POST('/api/trackers/{tracker_id}/session-check', { params: { path: { tracker_id: id } } })),
+  })
+}
+
 // Cosa se ne va dal DB eliminando il tracker (decisione dell'utente,
 // 2026-10-18): letto quando si apre la conferma, mai tenuto in cache. Il
 // pulsante resta montato a conferma chiusa, quindi gcTime 0 non basta: alla

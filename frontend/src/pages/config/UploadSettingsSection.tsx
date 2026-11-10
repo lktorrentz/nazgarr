@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useSetSetting, useSetting } from '@/api/hooks/settings'
+import { ChoiceCards, type Choice } from '@/components/ChoiceCards'
 import { SettingField } from '@/components/SettingField'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -11,6 +12,40 @@ import { t } from '@/lib/i18n'
 import { FileNamingCard } from '@/pages/config/FileNamingCard'
 import { ImageHostsCard } from '@/pages/config/ImageHostsCard'
 import { autosaveFeedback } from '@/lib/autosave'
+
+// Un torrent identico sul tracker durante un upload (nazgarr/upload/auto.py,
+// decisione dell'utente 2026-11-10): decidi tu, il full hash check parte da
+// solo, o anche il reseed a verifica passata. Spento di default.
+type IdenticalAuto = 'off' | 'verify' | 'reseed'
+const IDENTICAL_CHOICES: Choice<IdenticalAuto>[] = (['off', 'verify', 'reseed'] as const).map((value) => ({
+  value,
+  title: t(`uploadSettings.identical.${value}Title`),
+  description: t(`uploadSettings.identical.${value}Help`),
+}))
+
+function IdenticalTorrentCard() {
+  const { data } = useSetting('upload_identical_auto')
+  const setSetting = useSetSetting('upload_identical_auto')
+  const value = IDENTICAL_CHOICES.some((c) => c.value === data?.value) ? (data?.value as IdenticalAuto) : 'off'
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('uploadSettings.identical.title')}</CardTitle>
+        <CardDescription>{t('uploadSettings.identical.description')}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ChoiceCards
+          label={t('uploadSettings.identical.title')}
+          choices={IDENTICAL_CHOICES}
+          value={value}
+          disabled={setSetting.isPending}
+          className="lg:grid-cols-3"
+          onSelect={(next, choice) => setSetting.mutate(next, autosaveFeedback(choice.title))}
+        />
+      </CardContent>
+    </Card>
+  )
+}
 
 // Un'impostazione sì/no, salvata subito. defaultOn: il valore finché non è mai stata salvata.
 function SettingToggle({ settingKey, label, description, defaultOn = false }: {
@@ -165,6 +200,8 @@ export function UploadReleasesSection() {
           />
         </CardContent>
       </Card>
+
+      <IdenticalTorrentCard />
 
       <Card data-tour="upload.description">
         <CardHeader>

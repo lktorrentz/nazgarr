@@ -818,6 +818,27 @@ export interface paths {
         patch: operations["update_tracker_api_trackers__tracker_id__patch"];
         trace?: never;
     };
+    "/api/trackers/{tracker_id}/session-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Session
+         * @description Se il cookie della sessione web salvato vale ancora: una pagina del
+         *     sito in sola lettura, niente viene inviato.
+         */
+        post: operations["check_session_api_trackers__tracker_id__session_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/trackers/{tracker_id}/icon": {
         parameters: {
             query?: never;
@@ -5352,6 +5373,8 @@ export interface components {
             rate_limit_per_min?: number | null;
             /** Rss Key */
             rss_key?: string | null;
+            /** Session Cookie */
+            session_cookie?: string | null;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
             /** Language */
@@ -5426,6 +5449,11 @@ export interface components {
              * @default false
              */
             has_rss_key: boolean;
+            /**
+             * Has Session Cookie
+             * @default false
+             */
+            has_session_cookie: boolean;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
             /** Language */
@@ -5448,6 +5476,16 @@ export interface components {
             };
             upload_profile?: components["schemas"]["TrackerUploadProfileSummary"] | null;
         };
+        /** TrackerSessionCheckResponse */
+        TrackerSessionCheckResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "no_session" | "session_expired" | "failed" | "unsupported";
+            /** Reason */
+            reason?: string | null;
+        };
         /** TrackerUpdateRequest */
         TrackerUpdateRequest: {
             /** Label */
@@ -5464,6 +5502,8 @@ export interface components {
             enabled?: boolean | null;
             /** Rss Key */
             rss_key?: string | null;
+            /** Session Cookie */
+            session_cookie?: string | null;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
             /** Language */
@@ -6325,6 +6365,11 @@ export interface components {
             client_defaults: {
                 [key: string]: unknown;
             };
+            /**
+             * Auto Resurrection
+             * @default false
+             */
+            auto_resurrection: boolean;
         };
         /** UploadTrackerResponse */
         UploadTrackerResponse: {
@@ -7946,6 +7991,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackerResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_session_api_trackers__tracker_id__session_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tracker_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackerSessionCheckResponse"];
                 };
             };
             /** @description Validation Error */

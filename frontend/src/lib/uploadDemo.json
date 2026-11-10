@@ -512,6 +512,7 @@
    {
     "action": null,
     "approved_name": null,
+    "auto_resurrection": false,
     "category_id": null,
     "category_id_map": {},
     "client_category": null,
@@ -553,6 +554,7 @@
    {
     "action": null,
     "approved_name": null,
+    "auto_resurrection": false,
     "category_id": null,
     "category_id_map": {},
     "client_category": null,
@@ -726,6 +728,7 @@
    {
     "action": null,
     "approved_name": null,
+    "auto_resurrection": false,
     "category_id": null,
     "category_id_map": {},
     "client_category": null,
@@ -761,6 +764,7 @@
    {
     "action": null,
     "approved_name": null,
+    "auto_resurrection": false,
     "category_id": null,
     "category_id_map": {},
     "client_category": null,

@@ -235,7 +235,15 @@ export function TrackerCheckCard({
                         <span className="text-muted-foreground tabular-nums">{formatBytes(dupe.size_bytes)}</span>
                       )}
                     </div>
-                    {onClaimedChange && needsResurrectionClaim(dupe) && (
+                    {/* Con la sessione web del tracker il claim lo fa Nazgarr prima del
+                        reseed (nazgarr/upload/execute.py::_claim_resurrection, 2026-11-10). */}
+                    {onClaimedChange && needsResurrectionClaim(dupe) && target.auto_resurrection && (
+                      <p className="col-span-full flex items-start gap-2 rounded-md border border-sky-500/40 bg-sky-500/10 p-2">
+                        <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-sky-500" />
+                        {t('upload.dupes.resurrectionAuto')}
+                      </p>
+                    )}
+                    {onClaimedChange && needsResurrectionClaim(dupe) && !target.auto_resurrection && (
                       <div className="col-span-full grid gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
                         <p className="flex items-start gap-2">
                           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-500" />

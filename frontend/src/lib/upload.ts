@@ -44,10 +44,18 @@ export function missingEpisodes(found: number[], expected: number): number[] {
 // Il backend scrive code + params (nazgarr/upload/jobs.py log_event): la frase
 // è qui, tradotta. Un codice d'errore senza una frase dedicata passa da
 // errors.<code>, lo stesso dizionario degli errori delle API.
+// Un parametro "error" che è a sua volta un codice (upload_failed, reseed_failed:
+// nazgarr/upload/execute.py::_run_target) diventa la sua frase, con gli stessi parametri.
 export function eventMessage(event: { code: string; params: Record<string, unknown> }) {
+  const params = { ...event.params }
+  if (typeof params.error === 'string') {
+    const errorKey = `errors.${params.error}`
+    const translated = t(errorKey, params)
+    if (translated !== errorKey) params.error = translated
+  }
   const key = `upload.event.${event.code}`
-  const message = t(key, event.params)
-  return message === key ? t(`errors.${event.code}`, event.params) : message
+  const message = t(key, params)
+  return message === key ? t(`errors.${event.code}`, params) : message
 }
 
 // Bozza della decisione per un tracker, al secondo punto di approvazione.

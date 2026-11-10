@@ -44,6 +44,18 @@ describe('eventMessage', () => {
     )
     expect(eventMessage({ code: 'no_video_files', params: {} })).toBe('No video file found in the source.')
   })
+
+  it('turns a coded error inside a failure into its sentence', () => {
+    const message = eventMessage({
+      code: 'reseed_failed',
+      params: { error: 'upload_resurrection_failed', tracker: 'ITT', reason: 'HTTP 503' },
+    })
+    expect(message).toMatch(/^Reseed failed: ITT: the resurrection claim did not go through \(HTTP 503\)/)
+    // Un testo libero resta com'è.
+    expect(eventMessage({ code: 'reseed_failed', params: { error: 'connection refused' } })).toBe(
+      'Reseed failed: connection refused',
+    )
+  })
 })
 
 const source = {

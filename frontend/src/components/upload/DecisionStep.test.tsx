@@ -78,6 +78,25 @@ describe('DecisionStep', () => {
     expect(approve.mock.calls.at(-1)![0].targets[0]).toMatchObject({ action: 'reseed', reseed_torrent_id: '8' })
   })
 
+  it('does not ask about the resurrection when Nazgarr claims it with the website session', () => {
+    const passed = { status: 'passed', reason: null, ok: 9, pieces: 9 }
+    const dead = {
+      torrent_id_remote: '8', name: 'Movie.2024.1080p-Y', size_bytes: 1, verdict: 'identical', score: null,
+      reasons: [], unknown: [], seeders: 0, size_delta: null, verification: passed,
+    }
+    const reseed = {
+      ...job,
+      overrides: { source: 'WEB-DL' },
+      targets: [target(1, 'ITT', { suggested_action: 'reseed', reseed_torrent_id: '8', dupes: [dead],
+                                   tracker_base_url: 'https://itt.example', auto_resurrection: true })],
+    } as unknown as UploadJob
+    render(<DecisionStep job={reseed} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(screen.queryByText(/the reseed revives a torrent with no seeders/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Confirm and queue' })).toBeTruthy()
+  })
+
   it('can schedule the upload for a later time', () => {
     render(<DecisionStep job={{ ...job, overrides: { source: 'WEB-DL' } } as UploadJob} />)
 

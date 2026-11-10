@@ -2,7 +2,13 @@ import { CheckIcon, FileUpIcon, PencilIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { useBundledUploadProfiles, useCreateTracker, useTrackers, useUpdateTracker } from '@/api/hooks/trackers'
+import {
+  useBundledUploadProfiles,
+  useCheckTrackerSession,
+  useCreateTracker,
+  useTrackers,
+  useUpdateTracker,
+} from '@/api/hooks/trackers'
 import type { Schemas } from '@/api/client'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Badge } from '@/components/ui/badge'
@@ -67,6 +73,70 @@ function RssKeyField({
       />
       <p className="text-xs text-muted-foreground">{t('trackers.rssKeyHelp')}</p>
     </div>
+  )
+}
+
+// La riga Cookie del login sul sito (UNIT3D, con "Ricordami"): Nazgarr fa da
+// solo il claim della resurrection prima di rimettere in seed un torrent
+// morto (decisione dell'utente, 2026-11-10). Apre tutto l'account: l'API la
+// cifra e non la restituisce mai (has_session_cookie).
+function SessionCookieField({
+  id,
+  value,
+  onChange,
+  saved,
+  clear,
+  onClearChange,
+}: {
+  id: string
+  value: string
+  onChange: (value: string) => void
+  saved: boolean
+  clear: boolean
+  onClearChange: (clear: boolean) => void
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id}>{t('trackers.session.label')}</Label>
+      <Input
+        id={id}
+        type="password"
+        autoComplete="off"
+        value={value}
+        disabled={clear}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={saved ? t('trackers.session.known') : t('trackers.session.placeholder')}
+      />
+      <p className="text-xs text-muted-foreground">{t('trackers.session.help')}</p>
+      {saved && (
+        <label className="flex items-center gap-2 text-xs">
+          <Switch size="sm" checked={clear} onCheckedChange={onClearChange} />
+          {t('trackers.session.remove')}
+        </label>
+      )}
+    </div>
+  )
+}
+
+// Una pagina del sito con il cookie salvato, in sola lettura: dice subito se
+// il claim automatico funzionerà, invece di scoprirlo al primo reseed.
+function SessionCheckButton({ tracker }: { tracker: Tracker }) {
+  const check = useCheckTrackerSession()
+  function run() {
+    check.mutate(tracker.id, {
+      onSuccess: (result) => {
+        const message = t(`trackers.session.check.${result.status}`, { detail: result.reason ?? '' })
+        if (result.status === 'ok') toast.success(`${tracker.label} · ${message}`)
+        else if (result.status === 'session_expired' || result.status === 'failed') toast.error(`${tracker.label} · ${message}`)
+        else toast.info(`${tracker.label} · ${message}`)
+      },
+      onError: (error) => toast.error(t('trackers.session.check.failed', { detail: error.message })),
+    })
+  }
+  return (
+    <Button variant="ghost" size="xs" disabled={check.isPending} onClick={run}>
+      {t('trackers.session.checkButton')}
+    </Button>
   )
 }
 
@@ -344,6 +414,8 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
   const [announceUrl, setAnnounceUrl] = useState('')
   const [rateLimit, setRateLimit] = useState(tracker.rate_limit_per_min?.toString() ?? '')
   const [rssKey, setRssKey] = useState('')
+  const [sessionCookie, setSessionCookie] = useState('')
+  const [clearSession, setClearSession] = useState(false)
   const updateTracker = useUpdateTracker()
   const pluginSpec = usePluginTrackerTypes().find((a) => a.adapter_type === tracker.adapter_type)
   const secretsSet = (tracker.config as { secrets_set?: string[] }).secrets_set ?? []
@@ -363,6 +435,7 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
           announce_url: announceUrl || undefined,
           rate_limit_per_min: rateLimit ? Number(rateLimit) : undefined,
           rss_key: rssKey || undefined,
+          session_cookie: clearSession ? '' : sessionCookie || undefined,
           ...(pluginSpec ? { config: configPayload(pluginSpec.config_fields, configValues) } : {}),
         },
       },
@@ -372,6 +445,8 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
           setApiToken('')
           setAnnounceUrl('')
           setRssKey('')
+          setSessionCookie('')
+          setClearSession(false)
           setConfig(null)
         },
         onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
@@ -421,6 +496,16 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
             onChange={setRssKey}
             placeholder={tracker.has_rss_key ? t('trackers.rssKeyKnown') : t('trackers.rssKeyPlaceholder')}
           />
+          {tracker.adapter_type === 'unit3d' && (
+            <SessionCookieField
+              id="t-edit-session-cookie"
+              value={sessionCookie}
+              onChange={setSessionCookie}
+              saved={tracker.has_session_cookie}
+              clear={clearSession}
+              onClearChange={setClearSession}
+            />
+          )}
           <div className="grid gap-1.5">
             <Label htmlFor="t-edit-rate-limit">{t('trackers.rateLimit')}</Label>
             <Input
@@ -520,6 +605,17 @@ export function TrackersSection() {
                   <SecretPresence present={tracker.has_announce_url} />
                   <span className="text-muted-foreground">{t('trackers.rssKeyColumn')}</span>
                   <SecretPresence present={tracker.has_rss_key} />
+                  {tracker.adapter_type === 'unit3d' && (
+                    <>
+                      <span className="text-muted-foreground">
+                        <InfoPopover content={t('trackers.session.columnHelp')} className="pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">{t('trackers.session.column')}</InfoPopover>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <SecretPresence present={tracker.has_session_cookie} />
+                        {tracker.has_session_cookie && <SessionCheckButton tracker={tracker} />}
+                      </span>
+                    </>
+                  )}
                   <span className="text-muted-foreground" data-tour="trackers.card.client">{t('trackers.clientColumn')}</span>
                   <TrackerClientSelect
                     value={tracker.torrent_client_id ?? null}
