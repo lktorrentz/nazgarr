@@ -50,6 +50,7 @@ from nazgarr.adapters.torrent_client.base import (
     layout_kwargs,
     stopped_kwargs,
 )
+from nazgarr.adapters.tracker.base import TrackerWebResult
 from nazgarr.core import settings_repo
 from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError, english
@@ -59,7 +60,7 @@ from nazgarr.core.models import Candidate, Disk, DiskTorrentClient, MatchReview,
 from nazgarr.integrations import adapter_factory
 from nazgarr.library import disk_folders, hardlinks
 from nazgarr.library.tmdb_client import TMDBClient
-from nazgarr.reseed import download_links, full_check
+from nazgarr.reseed import download_links, full_check, resurrection
 from nazgarr.reseed.placement import Placement, placement_for, possible_placements
 from nazgarr.torrents import client_labels, client_paths, partial_files
 from nazgarr.torrents.layout import expected_missing_bytes
@@ -477,6 +478,8 @@ def _seed(
     add_sent = False
     try:
         torrent = _torrent_to_add(session, candidate, fetch_torrent)  # prima di ogni hardlink
+        # Prima degli hardlink e del client: UNIT3D accetta il claim solo con 0 seeder.
+        _claim_resurrection(session, seed_job, candidate)
         if links is not None:
             created = hardlinks.create_links(links)  # se uno fallisce, toglie quelli appena creati
             seed_job.hardlink_created_at = datetime.now(UTC)
@@ -518,6 +521,38 @@ def _seed(
         # così com'era (audit 2026-10-18).
         raise ExecutionError(safe_error(seed_job.error_message)) from exc
     return seed_job
+
+
+def _claim_resurrection(session: Session, seed_job: SeedJob, candidate: Candidate) -> None:
+    """Il claim della resurrection di un torrent morto che questa esecuzione
+    rimette in seed, con la sessione web salvata sul tracker (decisione
+    dell'utente, 2026-11-10; nazgarr/reseed/resurrection.py): i seeder si
+    rileggono dall'API, il candidato non li ha (e uno dalla history di
+    Radarr/Sonarr non li ha mai avuti). L'esito resta sul seed job
+    (resurrection). Una sessione scaduta o un errore fermano l'esecuzione
+    prima di hardlink e client: Retry la rifà, dopo il claim a mano o una
+    sessione nuova. Senza sessione nessuna richiesta."""
+    tracker = candidate.tracker
+    if not resurrection.has_session(tracker):
+        return
+    try:
+        with adapter_factory.tracker(tracker) as tracker_adapter:
+            result = resurrection.claim_before_seed(tracker, tracker_adapter, candidate.torrent_id_remote)
+    except Exception as exc:  # l'adapter non si costruisce
+        result = TrackerWebResult("failed", safe_error(exc))
+    if result is None:
+        return
+    if result.status in resurrection.GO_ON:
+        seed_job.resurrection = result.status
+        session.commit()
+        logger.info("Resurrection di %s su %s: %s %s", candidate.torrent_id_remote, tracker.label, result.status,
+                    result.detail or "")
+        return
+    reason = "the website session expired" if result.status == "session_expired" else (
+        result.detail or result.status)
+    raise ExecutionError(
+        f"The resurrection claim on {tracker.label} did not go through ({reason}): claim it on the tracker, "
+        "or save a new website session, then Retry")
 
 
 def _require_download_link(candidate) -> None:

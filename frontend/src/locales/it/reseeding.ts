@@ -47,6 +47,13 @@ export const reseeding = {
     'Il prossimo scan riproporrà il torrent per questo file. Niente cambia nel client né sul disco: un hardlink già creato si riusa, ma se il torrent è ancora nel client va tolto da lì, altrimenti non torna in coda.',
   'reseeding.jobDeleted': 'Esecuzione eliminata: il prossimo scan riproporrà il torrent.',
   'reseeding.deleteJobFailed': 'Eliminazione non riuscita: {message}',
+  'reseeding.resurrection.claimed': 'resurrection rivendicata',
+  'reseeding.resurrection.claimedHint': 'Il torrent non aveva seeder: Nazgarr ha fatto il claim della resurrection sul tracker prima di aggiungerlo.',
+  'reseeding.resurrection.not_offered': 'resurrection non offerta',
+  'reseeding.resurrection.not_offeredHint':
+    'Il torrent non aveva seeder, ma il tracker non offriva il claim (troppo recente, o un claim già in attesa, anche tuo).',
+  'reseeding.resurrection.refused': 'resurrection rifiutata',
+  'reseeding.resurrection.refusedHint': 'Il tracker ha rifiutato il claim (UNIT3D lo rifiuta sui tuoi upload).',
   'reseeding.recheckSkipped': 'nessun recheck del client',
   'reseeding.recheckSkippedHint': 'Nazgarr ha verificato prima ogni pezzo, quindi il client l’ha aggiunto come completo senza recheck.',
   'reseeding.executionError': 'Perché è fallita',

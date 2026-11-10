@@ -976,6 +976,9 @@ class SeedJob(Base):
     error_message: Mapped[str | None]
     expected_missing_bytes: Mapped[int | None]
     torrent_client_id: Mapped[int | None]  # dove è stato aggiunto il torrent (e dove se ne controlla il recheck)
+    # Il claim della resurrection prima dell'aggiunta (nazgarr/reseed/resurrection.py):
+    # claimed | not_offered | refused; NULL = non tentato (vivo, o senza sessione web).
+    resurrection: Mapped[str | None]
 
     candidate: Mapped["Candidate"] = relationship()
 

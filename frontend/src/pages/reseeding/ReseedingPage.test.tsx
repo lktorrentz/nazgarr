@@ -127,4 +127,20 @@ describe('ReseedingPage executions', () => {
       seedJobs = []
     }
   })
+
+  it('shows the resurrection claimed before the add', () => {
+    reviews = []
+    seedJobs = [{
+      id: 8, candidate_id: 4, candidate_name: 'Dead.mkv', direction: 'media_to_torrent', tracker: 'T',
+      torrent_client: 'qb', final_status: 'seeding', display_status: null, recheck_status: 'ok',
+      recheck_skipped: false, resurrection: 'claimed', error_message: null, hardlink_created_at: null,
+      torrent_added_at: null,
+    }]
+    try {
+      render(<ReseedingPage />)
+      expect(screen.getByText('resurrection claimed')).toBeTruthy()
+    } finally {
+      seedJobs = []
+    }
+  })
 })

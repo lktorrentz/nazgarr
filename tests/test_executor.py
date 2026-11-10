@@ -1432,3 +1432,95 @@ def test_a_retry_follows_its_torrent_back_where_it_was_added(db_session, tmp_pat
 
     assert adapter.rechecked == ["deadbeef"] and adapter.started == []
     assert (seed_job.final_status, seed_job.recheck_status) == ("in_progress", "pending")
+
+
+# --- claim della resurrection prima dell'aggiunta (decisione dell'utente, 2026-11-10)
+
+
+class _WebTracker:
+    """L'adapter del tracker per il claim: i seeder dall'API, poi il sito."""
+
+    def __init__(self, seeders=0, result="claimed", client=None):
+        self.seeders, self.result, self.client = seeders, result, client
+        self.claims, self.details = [], []
+
+    def get_torrent_detail(self, torrent_id):
+        self.details.append(torrent_id)
+        if isinstance(self.seeders, Exception):
+            raise self.seeders
+        return type("Detail", (), {"seeders": self.seeders})()
+
+    def claim_resurrection(self, torrent_id):
+        # Quante aggiunte al client e quanti hardlink c'erano al momento del claim.
+        self.claims.append((torrent_id, len(self.client.added)))
+        from nazgarr.adapters.tracker.base import TrackerWebResult
+        return TrackerWebResult(self.result, "HTTP 503" if self.result == "failed" else None)
+
+    def close(self):
+        pass
+
+
+def _with_web_tracker(monkeypatch, db_session, review, **kwargs):
+    review.candidate.tracker.history_session_cookie = "remember_web_x=1"
+    db_session.commit()
+    adapter = ReseedClient()
+    web = _WebTracker(client=adapter, **kwargs)
+    monkeypatch.setattr(executor.adapter_factory, "build_tracker_adapter", lambda row: web)
+    return adapter, web
+
+
+def test_a_dead_torrent_is_claimed_before_the_hardlink_and_the_client(db_session, tmp_path, monkeypatch):
+    root, review = _movie_review(db_session, tmp_path)
+    adapter, web = _with_web_tracker(monkeypatch, db_session, review)
+    links_at_claim = []
+    claim = web.claim_resurrection
+    web.claim_resurrection = lambda torrent_id: (
+        links_at_claim.append((root / "torrents" / "Movie.2024.mkv").exists()), claim(torrent_id))[1]
+
+    seed_job = executor.execute_review(db_session, review, adapter)
+
+    assert web.details == ["1"] and web.claims == [("1", 0)] and links_at_claim == [False]
+    assert seed_job.resurrection == "claimed" and len(adapter.added) == 1
+
+
+def test_an_alive_torrent_is_not_claimed_and_the_site_is_not_asked(db_session, tmp_path, monkeypatch):
+    _root, review = _movie_review(db_session, tmp_path)
+    adapter, web = _with_web_tracker(monkeypatch, db_session, review, seeders=4)
+
+    seed_job = executor.execute_review(db_session, review, adapter)
+
+    assert web.claims == [] and seed_job.resurrection is None and len(adapter.added) == 1
+
+
+def test_without_a_website_session_nothing_is_asked_to_the_tracker(db_session, tmp_path, monkeypatch):
+    _root, review = _movie_review(db_session, tmp_path)
+    monkeypatch.setattr(executor.adapter_factory, "build_tracker_adapter",
+                        lambda row: pytest.fail("no session: no tracker adapter"))
+    adapter = ReseedClient()
+
+    seed_job = executor.execute_review(db_session, review, adapter)
+
+    assert seed_job.resurrection is None and len(adapter.added) == 1
+
+
+def test_when_the_api_does_not_answer_the_torrent_page_decides(db_session, tmp_path, monkeypatch):
+    _root, review = _movie_review(db_session, tmp_path)
+    adapter, web = _with_web_tracker(monkeypatch, db_session, review, seeders=RuntimeError("API down"),
+                                     result="not_offered")
+
+    seed_job = executor.execute_review(db_session, review, adapter)
+
+    assert web.claims == [("1", 0)] and seed_job.resurrection == "not_offered" and len(adapter.added) == 1
+
+
+@pytest.mark.parametrize("result", ["session_expired", "failed"])
+def test_a_failed_claim_stops_the_execution_before_hardlink_and_client(db_session, tmp_path, monkeypatch, result):
+    root, review = _movie_review(db_session, tmp_path)
+    adapter, _web = _with_web_tracker(monkeypatch, db_session, review, result=result)
+
+    with pytest.raises(executor.ExecutionError, match="resurrection claim on t did not go through"):
+        executor.execute_review(db_session, review, adapter)
+
+    seed_job = db_session.query(SeedJob).one()
+    assert seed_job.final_status == "failed" and executor.NOTHING_SENT in seed_job.error_message
+    assert not (root / "torrents" / "Movie.2024.mkv").exists() and adapter.added == []

@@ -47,6 +47,13 @@ export const reseeding = {
     'The next scan will propose the torrent for this file again. Nothing changes in the client or on disk: a hardlink already created is reused, but if the torrent is still in the client remove it there, or it will not come back to the queue.',
   'reseeding.jobDeleted': 'Execution deleted: the next scan will propose the torrent again.',
   'reseeding.deleteJobFailed': 'Delete failed: {message}',
+  'reseeding.resurrection.claimed': 'resurrection claimed',
+  'reseeding.resurrection.claimedHint': 'The torrent had no seeders: Nazgarr claimed its resurrection on the tracker before adding it.',
+  'reseeding.resurrection.not_offered': 'resurrection not offered',
+  'reseeding.resurrection.not_offeredHint':
+    'The torrent had no seeders, but the tracker did not offer the claim (too recent, or a claim already pending, yours too).',
+  'reseeding.resurrection.refused': 'resurrection refused',
+  'reseeding.resurrection.refusedHint': 'The tracker refused the claim (UNIT3D refuses it on your own uploads).',
   'reseeding.recheckSkipped': 'no client recheck',
   'reseeding.recheckSkippedHint': 'Nazgarr verified every piece first, so the client added it as complete without rechecking.',
   'reseeding.executionError': 'Why it failed',

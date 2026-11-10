@@ -1069,9 +1069,25 @@ def test_a_reseed_puts_the_trackers_key_back_into_the_stored_link(db_session, tm
 # --- claim della resurrection prima del reseed (decisione dell'utente, 2026-11-10)
 
 
+def _with_session(db_session, job):
+    """La sessione web salvata sul tracker "a": senza, il claim non si tenta."""
+    job.targets[0].tracker.history_session_cookie = "remember_web_x=1"
+    db_session.commit()
+
+
+def test_without_a_website_session_the_claim_stays_manual(db_session, tmp_path, env):
+    job, _video = _reseed_job(db_session, tmp_path, env, seeders=0)
+    env["trackers"]["a"].claim_result = TrackerWebResult("claimed")
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done" and env["trackers"]["a"].claims == []
+
+
 def test_a_dead_torrent_is_claimed_before_anything_enters_the_client(db_session, tmp_path, env):
     """UNIT3D accetta il claim solo con 0 seeder: prima che il client annunci."""
     job, _video = _reseed_job(db_session, tmp_path, env, seeders=0)
+    _with_session(db_session, job)
     tracker = env["trackers"]["a"]
     tracker.claim_result = TrackerWebResult("claimed")
 
@@ -1085,6 +1101,7 @@ def test_a_dead_torrent_is_claimed_before_anything_enters_the_client(db_session,
 
 def test_an_alive_torrent_is_never_claimed(db_session, tmp_path, env):
     job, _video = _reseed_job(db_session, tmp_path, env, seeders=3)
+    _with_session(db_session, job)
     env["trackers"]["a"].claim_result = TrackerWebResult("claimed")
 
     _run(db_session, tmp_path, job)
@@ -1097,6 +1114,7 @@ def test_a_claim_that_is_not_needed_or_refused_lets_the_reseed_go_on(db_session,
     """Senza cookie il claim resta a mano; non offerto (già in attesa, anche
     fatto a mano) o rifiutato (un tuo upload) non c'è niente da perdere."""
     job, _video = _reseed_job(db_session, tmp_path, env, seeders=0)
+    _with_session(db_session, job)
     env["trackers"]["a"].claim_result = TrackerWebResult(status, "why" if status == "refused" else None)
 
     _run(db_session, tmp_path, job)
@@ -1111,6 +1129,7 @@ def test_a_failed_claim_stops_the_reseed_before_files_and_client(db_session, tmp
     """Il claim si perde appena il client annuncia: meglio fermarsi, e
     "Riprova" dopo il claim a mano o un cookie nuovo."""
     job, _video = _reseed_job(db_session, tmp_path, env, seeders=0)
+    _with_session(db_session, job)
     tracker = env["trackers"]["a"]
     tracker.claim_result = TrackerWebResult(status, "HTTP 503")
 
@@ -1170,6 +1189,7 @@ def test_the_automatic_reseed_verifies_claims_and_reseeds_an_identical_torrent(
     ready = []
     monkeypatch.setattr(upload_auto.events, "emit", lambda session, kind, data: ready.append(kind))
     job = _identical_job(db_session, tmp_path, env)
+    _with_session(db_session, job)
     tracker = env["trackers"]["a"]
     tracker.claim_result = TrackerWebResult("claimed")
 
