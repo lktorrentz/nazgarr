@@ -42,7 +42,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr.adapters.image_host.base import ImageHostError
 from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError, is_stopped_state, stopped_kwargs
-from nazgarr.adapters.tracker.base import NotSupportedError, TrackerWebResult, UploadFields, catalog_truncated
+from nazgarr.adapters.tracker.base import UploadFields, catalog_truncated
 from nazgarr.core import settings_registry
 from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError
@@ -65,6 +65,7 @@ from nazgarr.integrations import adapter_factory
 from nazgarr.integrations.adapter_factory import ImageHostConfigError
 from nazgarr.library import disk_folders, hardlinks, seed_refresh
 from nazgarr.library import mediainfo as mediainfo_util
+from nazgarr.reseed import resurrection
 from nazgarr.reseed.executor import (
     MISSING_TORRENT_GRACE,
     can_look_up_torrent,
@@ -1167,20 +1168,11 @@ def _claim_resurrection(session: Session, job: UploadJob, target: UploadTarget, 
     if dupe.get("seeders") != 0:
         return
     torrent = str(target.reseed_torrent_id)
-    claim = getattr(adapter, "claim_resurrection", None)  # un plugin che non deriva da TrackerAdapter
-    if claim is None:
-        return
-    try:
-        result = claim(torrent)
-    except NotSupportedError:
-        return
-    except Exception as exc:
-        logger.warning("Upload %s: claim della resurrection di %s fallito", job.id, torrent, exc_info=True)
-        result = TrackerWebResult("failed", safe_error(exc))
-    if result.status == "no_session":
+    result = resurrection.claim_before_seed(target.tracker, adapter, torrent, seeders=0)
+    if result is None:
         return
     detail = result.detail or ""
-    if result.status in ("claimed", "not_offered", "refused"):
+    if result.status in resurrection.GO_ON:
         upload_jobs.log_event(session, job, f"resurrection_{result.status}",
                               level="warning" if result.status == "refused" else "info", target=target,
                               torrent=torrent, detail=detail)

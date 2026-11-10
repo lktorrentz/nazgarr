@@ -4758,6 +4758,8 @@ export interface components {
              * @default false
              */
             recheck_skipped: boolean;
+            /** Resurrection */
+            resurrection?: string | null;
             /** Error Message */
             error_message: string | null;
             /** Hardlink Created At */
@@ -4991,6 +4993,8 @@ export interface components {
              * @default false
              */
             recheck_skipped: boolean;
+            /** Resurrection */
+            resurrection?: string | null;
             /** Error Message */
             error_message: string | null;
             /** Hardlink Created At */

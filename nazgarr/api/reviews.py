@@ -90,6 +90,8 @@ class SeedJobResponse(BaseModel):
     display_status: str | None = None
     recheck_status: str | None
     recheck_skipped: bool = False  # recheck del client saltato: Nazgarr aveva verificato il 100%
+    # Il claim della resurrection prima dell'aggiunta: claimed | not_offered | refused, o None.
+    resurrection: str | None = None
     error_message: str | None
     hardlink_created_at: datetime | None = None
     torrent_added_at: datetime | None = None
@@ -116,6 +118,7 @@ class SeedJobResponse(BaseModel):
             final_status=sj.final_status,
             display_status=review.seed_job_display_status(sj, in_client or set()),
             recheck_status=sj.recheck_status, recheck_skipped=bool(sj.recheck_skipped),
+            resurrection=sj.resurrection,
             error_message=sj.error_message,
             hardlink_created_at=sj.hardlink_created_at, torrent_added_at=sj.torrent_added_at,
         )

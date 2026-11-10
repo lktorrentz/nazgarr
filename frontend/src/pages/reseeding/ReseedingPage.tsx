@@ -463,6 +463,16 @@ function ExecutionRow({ job }: { job: SeedJob }) {
               {t('reseeding.recheckSkipped')}
             </span>
           )}
+          {/* Il claim della resurrection prima dell'aggiunta (nazgarr/reseed/resurrection.py, 2026-11-10). */}
+          {job.resurrection && (
+            <span
+              className={cn('text-[length:var(--text-xxs)]', job.resurrection === 'claimed'
+                ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')}
+              title={t(`reseeding.resurrection.${job.resurrection}Hint`)}
+            >
+              {t(`reseeding.resurrection.${job.resurrection}`)}
+            </span>
+          )}
           {job.error_message && (
             <ErrorsPopover count={1} messages={[job.error_message]} title={t('reseeding.executionError')} />
           )}

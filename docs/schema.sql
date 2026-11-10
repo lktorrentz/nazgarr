@@ -688,8 +688,12 @@ CREATE TABLE IF NOT EXISTS seed_job (
     -- Indicative layout — execution details to be refined in Phase 4 (docs/ROADMAP.md), in
     -- particular how/when result_seed_file_id and result_client_torrent_id get reconciled
     -- with the next scan instead of being written directly by the executor.
-    torrent_client_id            INTEGER
+    torrent_client_id            INTEGER,
         -- the client the torrent was added to: its recheck is checked there, not on "the first client"
+    resurrection                 TEXT
+        -- the resurrection claim before the add, with the tracker's website session
+        -- (nazgarr/reseed/resurrection.py, user decision 2026-11-10): claimed, not_offered or
+        -- refused; null = not tried (alive, or no session). Additive.
 );
 
 -- Per-tracker health history (the dashboard's tracker filter, nazgarr/tracker_scope.py):
