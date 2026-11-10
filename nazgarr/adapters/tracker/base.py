@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
+from nazgarr.adapters.tracker import unit3d_web
 from nazgarr.core import http_limits, net_guard
 from nazgarr.library import mediainfo_text
 
@@ -134,6 +135,26 @@ class TorrentRecord:
     file_list: list[str] | None
 
 
+@dataclass(frozen=True)
+class TrackerWebResult:
+    """Esito di un'azione sul sito del tracker (non sulla sua API) con la
+    sessione web dell'utente: check_web_session e claim_resurrection.
+
+    status:
+    - "ok": la sessione vale (check_web_session);
+    - "claimed": il tracker ha registrato il claim (claim_resurrection);
+    - "not_offered": la pagina del torrent non offre il claim (ha seeder,
+      è troppo recente, un claim è già in attesa, anche il tuo);
+    - "refused": il tracker ha rifiutato il claim inviato (un tuo upload);
+    - "no_session": nessun cookie di sessione salvato;
+    - "session_expired": il tracker rimanda al login;
+    - "failed": tutto il resto (rete, 419, una protezione del sito), con detail.
+    """
+
+    status: Literal["ok", "claimed", "not_offered", "refused", "no_session", "session_expired", "failed"]
+    detail: str | None = None
+
+
 class TrackerAdapter(ABC):
     """Un'istanza per ogni tracker configurato (vedi tabella `tracker`)."""
 
@@ -183,6 +204,19 @@ class TrackerAdapter(ABC):
         se l'adapter non lo implementa, UploadError se il tracker rifiuta la
         richiesta."""
         raise NotSupportedError(f"{self.__class__.__name__} non supporta upload_torrent()")
+
+    def check_web_session(self) -> TrackerWebResult:
+        """Se la sessione web salvata vale ancora (una pagina del sito, in
+        sola lettura). NotSupportedError se l'adapter non usa il sito."""
+        raise NotSupportedError(f"{self.__class__.__name__} non supporta check_web_session()")
+
+    def claim_resurrection(self, torrent_id_remote: str) -> TrackerWebResult:
+        """Il claim della resurrection di un torrent morto, con la sessione
+        web dell'utente, prima che il client lo annunci (decisione
+        dell'utente, 2026-11-10: nazgarr/upload/execute.py::run_reseed).
+        NotSupportedError se il tracker non ha il claim o l'adapter non lo sa
+        fare."""
+        raise NotSupportedError(f"{self.__class__.__name__} non supporta claim_resurrection()")
 
 
 class CatalogResults(list):
@@ -407,12 +441,16 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         sleep: Callable[[float], None] = time.sleep,
         rss_key: str | None = None,
         shared: bool = False,
+        session_cookie: str | None = None,
     ):
         """shared: rate limit e cache delle ricerche comuni a tutti gli adapter
         dello stesso tracker nel processo (quelli costruiti dall'app, vedi
-        nazgarr/plugins/builtin.py); senza, propri di questo adapter (test)."""
+        nazgarr/plugins/builtin.py); senza, propri di questo adapter (test).
+        session_cookie: la riga Cookie della sessione web dell'utente, per il
+        claim della resurrection (nazgarr/adapters/tracker/unit3d_web.py)."""
         self.base_url = base_url.rstrip("/")
         self.api_token = api_token
+        self.session_cookie = session_cookie
         # Connesso solo a indirizzi controllati nel momento della connessione
         # (nazgarr/core/net_guard.py): l'URL e i link di download vengono dal tracker.
         self._client = http_client or net_guard.http_client(base_url=self.base_url, timeout=15.0)
@@ -610,21 +648,149 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         # caricato un torrent), e farebbe chiamare al server indirizzi interni.
         # Lo schema conta quanto l'host: un link http:// su un tracker https://
         # manderebbe la passkey in chiaro, e un altro schema non è un .torrent.
-        tracker_host = host_of_url(self.base_url)
-        full_url = urljoin(self.base_url + "/", url)
-        link_host = host_of_url(full_url)
-        if not link_host or not tracker_host or not (
-            link_host == tracker_host or link_host.endswith("." + tracker_host)
-        ):
-            raise UploadError(f"Download link outside the tracker ({link_host}): not followed")
-        scheme, tracker_scheme = urlsplit(full_url).scheme.lower(), urlsplit(self.base_url).scheme.lower()
-        if scheme not in ("http", "https") or (tracker_scheme == "https" and scheme != "https"):
-            raise UploadError(
-                f"Download link with scheme {scheme or 'none'!r} on a {tracker_scheme} tracker: not followed")
+        outside = self._outside_tracker(urljoin(self.base_url + "/", url))
+        if outside:
+            raise UploadError(f"Download link {outside}: not followed")
         try:
             return self._get(url, authenticated=False, limit=self.MAX_TORRENT_BYTES)
         except _BodyTooLarge as exc:
             raise UploadError(f"The tracker sent a .torrent {exc}: not used") from exc
+
+    def _outside_tracker(self, full_url: str) -> str | None:
+        """Perché un URL che viene dal tracker (un link di download, l'action
+        di un form) non si segue, o None: un altro host, o uno schema
+        diverso (http:// su un tracker https:// manderebbe in chiaro la
+        passkey o il cookie di sessione)."""
+        tracker_host = host_of_url(self.base_url)
+        link_host = host_of_url(full_url)
+        if not link_host or not tracker_host or not (
+            link_host == tracker_host or link_host.endswith("." + tracker_host)
+        ):
+            return f"outside the tracker ({link_host})"
+        scheme, tracker_scheme = urlsplit(full_url).scheme.lower(), urlsplit(self.base_url).scheme.lower()
+        if scheme not in ("http", "https") or (tracker_scheme == "https" and scheme != "https"):
+            return f"with scheme {scheme or 'none'!r} on a {tracker_scheme} tracker"
+        return None
+
+    # --- il sito, con la sessione web dell'utente (unit3d_web.py) -------------
+
+    # Una pagina HTML del sito: quella di un torrent con un MediaInfo lungo e i commenti sta ben sotto.
+    WEB_PAGE_MAX_BYTES = 8 * 1024 * 1024
+
+    def check_web_session(self) -> TrackerWebResult:
+        cookies = self._web_cookies()
+        if isinstance(cookies, TrackerWebResult):
+            return cookies
+        try:
+            page = self._web_page("/", cookies)
+        except UploadError as exc:
+            return TrackerWebResult("failed", str(exc))
+        return page if isinstance(page, TrackerWebResult) else TrackerWebResult("ok")
+
+    def claim_resurrection(self, torrent_id_remote: str) -> TrackerWebResult:
+        """Il form della pagina del torrent, inviato come lo invierebbe il
+        browser; l'esito si legge dalla pagina dopo: senza più il form, il
+        claim è in attesa. Tre richieste, ognuna col suo turno nel rate
+        limit. Un claim inviato di cui non si legge l'esito è "failed": al
+        nuovo tentativo la pagina dice com'è andata (non lo offre più)."""
+        torrent_id = str(torrent_id_remote)
+        if not torrent_id.isdigit():
+            return TrackerWebResult("failed", f"{torrent_id!r} is not a UNIT3D torrent id")
+        cookies = self._web_cookies()
+        if isinstance(cookies, TrackerWebResult):
+            return cookies
+        page_path = f"/torrents/{torrent_id}"
+        try:
+            page = self._web_page(page_path, cookies)
+            if isinstance(page, TrackerWebResult):
+                return page
+            form = unit3d_web.resurrection_form(page, torrent_id)
+            if form is None:
+                return TrackerWebResult("not_offered")
+            if not form.fields.get("_token"):
+                return TrackerWebResult("failed", "The claim form on the torrent page has no CSRF token")
+            action = urljoin(self.base_url + page_path, form.action or page_path)
+            outside = self._outside_tracker(action)
+            if outside:
+                return TrackerWebResult("failed", f"The claim form points {outside}")
+            status, location, _body = self._web("POST", action, cookies, data=form.fields)
+            if unit3d_web.is_login_redirect(status, location):
+                return TrackerWebResult("session_expired")
+            if status == 419:
+                return TrackerWebResult("failed", "The tracker rejected the form token (HTTP 419)")
+            if status == 403:
+                return TrackerWebResult("refused", "HTTP 403")
+            if not 200 <= status < 400:
+                return TrackerWebResult("failed", self._web_status_detail(status, location))
+            after = self._web_page(page_path, cookies)
+        except UploadError as exc:
+            return TrackerWebResult("failed", str(exc))
+        if isinstance(after, TrackerWebResult):
+            return TrackerWebResult("failed", f"Claim sent, but the torrent page could not be read after it "
+                                              f"({after.detail or after.status})")
+        if unit3d_web.resurrection_form(after, torrent_id) is None:
+            return TrackerWebResult("claimed")
+        return TrackerWebResult("refused", "The torrent page still offers the claim after sending it "
+                                           "(UNIT3D refuses it on your own uploads)")
+
+    def _web_cookies(self) -> dict[str, str] | TrackerWebResult:
+        if not self.session_cookie:
+            return TrackerWebResult("no_session")
+        try:
+            return unit3d_web.parse_cookie_header(self.session_cookie)
+        except unit3d_web.InvalidCookie:
+            return TrackerWebResult("failed", "The saved session cookie is not a valid Cookie line")
+
+    def _web_page(self, path: str, cookies: dict[str, str]) -> "unit3d_web.Page | TrackerWebResult":
+        status, location, body = self._web("GET", path, cookies)
+        if unit3d_web.is_login_redirect(status, location):
+            return TrackerWebResult("session_expired")
+        if status != 200:
+            return TrackerWebResult("failed", self._web_status_detail(status, location))
+        page = unit3d_web.parse_page(body)
+        if page.is_login():
+            return TrackerWebResult("session_expired")
+        return page
+
+    @staticmethod
+    def _web_status_detail(status: int, location: str | None) -> str:
+        if 300 <= status < 400:
+            return f"HTTP {status}, redirect to {location or '?'}"
+        if status in (403, 503):
+            return f"HTTP {status} (a protection of the site, like Cloudflare, may block requests from the server)"
+        return f"HTTP {status}"
+
+    def _web(self, method: str, url: str, cookies: dict[str, str],
+             data: dict[str, str] | None = None) -> tuple[int, str | None, str]:
+        """Una richiesta al sito, mai seguendo i redirect: stato, Location e
+        corpo (vuoto per un redirect o un errore). I cookie che il tracker
+        rimanda (la sessione nuova creata dal cookie "Ricordami", il token
+        XSRF) aggiornano `cookies` per la richiesta dopo; nel DB resta
+        quello incollato dall'utente. Mai il token dell'API."""
+        self._check_destination(url)
+        headers = {
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Encoding": http_limits.ACCEPT_ENCODING,
+            "Cookie": unit3d_web.cookie_header(cookies),
+            "Referer": self.base_url + "/",
+        }
+        if data is not None:
+            headers["Origin"] = self.base_url
+        self._rate_limiter.wait(self._sleep)
+        try:
+            with self._client.stream(method, url, headers=headers, data=data) as response:
+                for name, value in response.cookies.items():
+                    cookies[name] = value
+                location = response.headers.get("location")
+                if response.is_redirect or response.status_code >= 400:
+                    return response.status_code, location, ""
+                body = http_limits.read_limited(response, self.WEB_PAGE_MAX_BYTES, self._deadline())
+                return response.status_code, location, body.decode(response.charset_encoding or "utf-8",
+                                                                   errors="replace")
+        except http_limits.ResponseLimitExceeded as exc:
+            raise UploadError(f"The tracker sent a page {exc}: not used") from exc
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
+            raise UploadError(f"Request to the tracker site failed: {exc}") from exc
 
     def _retry_wait_seconds(self, response: httpx.Response, attempt: int) -> float:
         header = response.headers.get("Retry-After")

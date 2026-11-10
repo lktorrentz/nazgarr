@@ -15,12 +15,14 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentClientAdapter,
     TorrentStatus,
 )
-from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
+from nazgarr.adapters.tracker.base import TrackerWebResult, UploadedTorrent, UploadError
+from nazgarr.core import settings_repo
 from nazgarr.core.db_utils import as_utc
 from nazgarr.core.fs_scope import ScopeViolation
 from nazgarr.core.models import Disk, TrackerUploadProfile
 from nazgarr.torrents import create as torrent_create
 from nazgarr.torrents.metainfo import compute_info_hash
+from nazgarr.upload import auto as upload_auto
 from nazgarr.upload import decision as upload_decision
 from nazgarr.upload import execute as upload_execute
 from nazgarr.upload import extras_check as upload_extras
@@ -56,6 +58,15 @@ class _Tracker:
         self.uploads = []
         self.changed_content = False
         self.catalog = []  # quello che la ricerca trova (il dupe check prima di un upload programmato)
+        # Il claim della resurrection: l'esito, e i torrent chiesti con quante
+        # aggiunte al client c'erano già in quel momento.
+        self.claim_result = TrackerWebResult("no_session")
+        self.claims = []
+        self.client = None
+
+    def claim_resurrection(self, torrent_id_remote):
+        self.claims.append((torrent_id_remote, len(self.client.added) if self.client is not None else None))
+        return self.claim_result
 
     def search_by_tmdb(self, tmdb_id):
         return self.catalog
@@ -185,6 +196,8 @@ def env(db_session, tmp_path, monkeypatch):
         profile.description_template = "{{ mediainfo }}{% for u in screenshot_urls %} [img]{{ u }}[/img]{% endfor %}"
     db_session.commit()
     client = _Client()
+    for fake in trackers.values():
+        fake.client = client
     monkeypatch.setattr(upload_execute.adapter_factory, "build_tracker_adapter", lambda t: trackers[t.label])
     monkeypatch.setattr(upload_execute.adapter_factory, "build_torrent_client_adapter", lambda row: client)
     monkeypatch.setattr(upload_execute.adapter_factory, "build_image_host_chain", lambda session: _Chain())
@@ -386,7 +399,7 @@ def test_a_source_inside_the_seeding_folder_seeds_in_place(db_session, tmp_path,
     assert (fields.season_number, fields.episode_number) == (1, 0)
 
 
-def _reseed_job(db_session, tmp_path, env, verified_hash=None, extras=None, recorded=True):
+def _reseed_job(db_session, tmp_path, env, verified_hash=None, extras=None, recorded=True, seeders=None):
     """Un job col solo target "a" in reseed del torrent 7, già verificato
     (verified_hash: l'info hash letto dal controllo; di default quello del
     .torrent che il tracker restituisce). extras: {nome: byte} che il
@@ -409,7 +422,8 @@ def _reseed_job(db_session, tmp_path, env, verified_hash=None, extras=None, reco
         verification = upload_verify.run_check(job, env["trackers"]["a"].torrent_bytes)
         assert verification["status"] == "passed" and verification["files"]
     job.targets[0].dupes_json = json.dumps([{"torrent_id_remote": "7", "verdict": "identical",
-                                             "download_link": "https://a/dl/7", "verification": verification}])
+                                             "download_link": "https://a/dl/7", "verification": verification,
+                                             "seeders": seeders}])
     db_session.commit()
     upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, content_type="movie",
                            kind="movie")
@@ -1050,6 +1064,205 @@ def test_a_reseed_puts_the_trackers_key_back_into_the_stored_link(db_session, tm
     assert job.status == "done", [e.code for e in job.events]
     assert seen == ["https://a.example/torrent/download/7.CurrentKey"]
     assert "CurrentKey" not in job.targets[0].dupes_json
+
+
+# --- claim della resurrection prima del reseed (decisione dell'utente, 2026-11-10)
+
+
+def test_a_dead_torrent_is_claimed_before_anything_enters_the_client(db_session, tmp_path, env):
+    """UNIT3D accetta il claim solo con 0 seeder: prima che il client annunci."""
+    job, _video = _reseed_job(db_session, tmp_path, env, seeders=0)
+    tracker = env["trackers"]["a"]
+    tracker.claim_result = TrackerWebResult("claimed")
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert tracker.claims == [("7", 0)]  # nessuna aggiunta al client prima del claim
+    assert len(_adds(env["client"])) == 1
+    assert _events(job, "resurrection_claimed") == [{"torrent": "7", "detail": ""}]
+
+
+def test_an_alive_torrent_is_never_claimed(db_session, tmp_path, env):
+    job, _video = _reseed_job(db_session, tmp_path, env, seeders=3)
+    env["trackers"]["a"].claim_result = TrackerWebResult("claimed")
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done" and env["trackers"]["a"].claims == []
+
+
+@pytest.mark.parametrize("status", ["no_session", "not_offered", "refused"])
+def test_a_claim_that_is_not_needed_or_refused_lets_the_reseed_go_on(db_session, tmp_path, env, status):
+    """Senza cookie il claim resta a mano; non offerto (già in attesa, anche
+    fatto a mano) o rifiutato (un tuo upload) non c'è niente da perdere."""
+    job, _video = _reseed_job(db_session, tmp_path, env, seeders=0)
+    env["trackers"]["a"].claim_result = TrackerWebResult(status, "why" if status == "refused" else None)
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done" and len(_adds(env["client"])) == 1
+    assert bool(_events(job, f"resurrection_{status}")) == (status != "no_session")
+
+
+@pytest.mark.parametrize(("status", "event"), [("session_expired", "resurrection_session_expired"),
+                                               ("failed", "resurrection_failed")])
+def test_a_failed_claim_stops_the_reseed_before_files_and_client(db_session, tmp_path, env, status, event):
+    """Il claim si perde appena il client annuncia: meglio fermarsi, e
+    "Riprova" dopo il claim a mano o un cookie nuovo."""
+    job, _video = _reseed_job(db_session, tmp_path, env, seeders=0)
+    tracker = env["trackers"]["a"]
+    tracker.claim_result = TrackerWebResult(status, "HTTP 503")
+
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert target.status == "failed" and target.error_message == "upload_resurrection_failed"
+    assert _adds(env["client"]) == []
+    assert not (env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP").exists()
+    assert _events(job, event) == [{"torrent": "7", "detail": "HTTP 503"}]
+
+    # Fatto a mano nel frattempo: la pagina non lo offre più, e il reseed riparte.
+    tracker.claim_result = TrackerWebResult("not_offered")
+    upload_jobs.retry_failed(db_session, job)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert len(_adds(env["client"])) == 1
+
+
+# --- hash check e reseed da soli (upload_identical_auto, decisione dell'utente 2026-11-10)
+
+
+def _identical_job(db_session, tmp_path, env, b_seeding=True):
+    """Il job alla decisione: su "a" il torrent 7 identico e morto, non
+    ancora verificato; "b" ha già quei file in seed con un suo torrent."""
+    video = write_video(env["root"] / "media" / "Matrix" / "matrix.mkv", 300 * KB)
+    other = tmp_path / "tracker-layout" / "The.Matrix.1999.1080p-GRP"
+    other.mkdir(parents=True)
+    os.link(video, other / "The.Matrix.1999.1080p-GRP.mkv")
+    torrent_path, _ = torrent_create.create_torrent(str(other), "https://a/announce", str(tmp_path / "t.torrent"))
+    with open(torrent_path, "rb") as f:
+        env["trackers"]["a"].torrent_bytes = f.read()
+    job = upload_jobs.create_job(db_session, env["disk"], "media/Matrix")
+    job.targets[0].dupes_json = json.dumps([{"torrent_id_remote": "7", "verdict": "identical",
+                                             "download_link": "https://a/dl/7", "seeders": 0}])
+    job.targets[0].suggested_action = "reseed"
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, content_type="movie",
+                           kind="movie")
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    seeding = {str(job.targets[1].id): {"name": "x", "client": "qbit"}} if b_seeding else {}
+    job.analysis_json = json.dumps({"seeding_here": seeding})
+    db_session.commit()
+    return job
+
+
+def _worker(db_session, tmp_path):
+    factory = lambda: db_session.__class__(bind=db_session.get_bind())  # noqa: E731
+    return UploadWorker(factory, str(tmp_path / "data"), light_executor=InlineExecutor(),
+                        heavy_executor=InlineExecutor(), verify_executor=InlineExecutor())
+
+
+def test_the_automatic_reseed_verifies_claims_and_reseeds_an_identical_torrent(
+        db_session, tmp_path, env, monkeypatch):
+    settings_repo.set_setting(db_session, "upload_identical_auto", "reseed")
+    ready = []
+    monkeypatch.setattr(upload_auto.events, "emit", lambda session, kind, data: ready.append(kind))
+    job = _identical_job(db_session, tmp_path, env)
+    tracker = env["trackers"]["a"]
+    tracker.claim_result = TrackerWebResult("claimed")
+
+    upload_auto.settle(db_session, job, _worker(db_session, tmp_path), after_analysis=True)
+    db_session.expire_all()
+
+    a, b = job.targets
+    assert job.status == "done", [e.code for e in job.events]
+    assert (a.action, a.reseed_torrent_id, b.action) == ("reseed", "7", "skip")
+    assert json.loads(a.dupes_json)[0]["verification"]["status"] == "passed"
+    assert tracker.claims == [("7", 0)] and len(_adds(env["client"])) == 1
+    codes = [e.code for e in job.events]
+    assert codes.index("auto_verify_started") < codes.index("verify_passed") < codes.index("auto_reseed_approved")
+    assert "upload.ready" not in ready and "upload.finished" in ready  # niente da decidere, nessun "pronto"
+    assert "ready_pending" not in json.loads(job.analysis_json)
+
+
+def test_with_only_the_automatic_check_the_decision_stays_yours(db_session, tmp_path, env, monkeypatch):
+    settings_repo.set_setting(db_session, "upload_identical_auto", "verify")
+    ready = []
+    monkeypatch.setattr(upload_auto.events, "emit", lambda session, kind, data: ready.append(kind))
+    job = _identical_job(db_session, tmp_path, env)
+
+    upload_auto.settle(db_session, job, _worker(db_session, tmp_path), after_analysis=True)
+    db_session.expire_all()
+
+    assert job.status == "awaiting_decision" and job.targets[0].action is None
+    assert json.loads(job.targets[0].dupes_json)[0]["verification"]["status"] == "passed"
+    assert ready == ["upload.ready"]  # dopo la verifica, una volta
+    assert _adds(env["client"]) == []
+
+
+def test_a_tracker_that_needs_you_keeps_the_automatic_reseed_waiting(db_session, tmp_path, env, monkeypatch):
+    """"b" non ha né il torrent né i file in seed: un upload è una decisione tua."""
+    settings_repo.set_setting(db_session, "upload_identical_auto", "reseed")
+    ready = []
+    monkeypatch.setattr(upload_auto.events, "emit", lambda session, kind, data: ready.append(kind))
+    job = _identical_job(db_session, tmp_path, env, b_seeding=False)
+
+    upload_auto.settle(db_session, job, _worker(db_session, tmp_path), after_analysis=True)
+    db_session.expire_all()
+
+    assert job.status == "awaiting_decision" and ready == ["upload.ready"]
+    assert json.loads(job.targets[0].dupes_json)[0]["verification"]["status"] == "passed"
+    assert "auto_reseed_approved" not in [e.code for e in job.events]
+
+
+def test_with_the_setting_off_nothing_starts_and_the_job_is_ready_at_once(db_session, tmp_path, env, monkeypatch):
+    ready = []
+    monkeypatch.setattr(upload_auto.events, "emit", lambda session, kind, data: ready.append(kind))
+    job = _identical_job(db_session, tmp_path, env)
+
+    upload_auto.settle(db_session, job, _worker(db_session, tmp_path), after_analysis=True)
+    db_session.expire_all()
+
+    assert ready == ["upload.ready"] and "verify_started" not in [e.code for e in job.events]
+    assert job.targets[0].status == "awaiting_decision"
+
+
+def test_an_automatic_check_stopped_by_a_restart_starts_again(db_session, tmp_path, env, monkeypatch):
+    """Il riavvio riporta il target alla decisione (verify_interrupted): la
+    verifica partita da sola riparte, e l'avviso "upload pronto" arriva."""
+    settings_repo.set_setting(db_session, "upload_identical_auto", "verify")
+    ready = []
+    monkeypatch.setattr(upload_auto.events, "emit", lambda session, kind, data: ready.append(kind))
+    job = _identical_job(db_session, tmp_path, env)
+    job.analysis_json = json.dumps({**json.loads(job.analysis_json), "ready_pending": True})
+    db_session.commit()
+
+    _worker(db_session, tmp_path).resume()
+    db_session.expire_all()
+
+    assert json.loads(job.targets[0].dupes_json)[0]["verification"]["status"] == "passed"
+    assert ready == ["upload.ready"] and "ready_pending" not in json.loads(job.analysis_json)
+
+
+def test_a_failed_automatic_check_moves_to_the_next_identical_torrent(db_session, tmp_path, env, monkeypatch):
+    settings_repo.set_setting(db_session, "upload_identical_auto", "verify")
+    monkeypatch.setattr(upload_auto.events, "emit", lambda session, kind, data: None)
+    job = _identical_job(db_session, tmp_path, env)
+    target = job.targets[0]
+    dupes = json.loads(target.dupes_json)
+    target.dupes_json = json.dumps([{**dupes[0], "torrent_id_remote": "6", "download_link": "https://a/dl/6"},
+                                    dupes[0]])
+    db_session.commit()
+    good = env["trackers"]["a"].torrent_bytes
+    env["trackers"]["a"].download_torrent = lambda url: good if url.endswith("/7") else b"not a torrent"
+
+    upload_auto.settle(db_session, job, _worker(db_session, tmp_path), after_analysis=True)
+    db_session.expire_all()
+
+    statuses = [d["verification"]["status"] for d in json.loads(target.dupes_json)]
+    assert statuses == ["error", "passed"]
 
 
 def test_a_reseed_refuses_a_torrent_other_than_the_verified_one(db_session, tmp_path, env):

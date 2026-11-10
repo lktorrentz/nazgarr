@@ -388,6 +388,9 @@ class UploadTargetResponse(BaseModel):
     client_category: str | None = None  # scelti all'approvazione
     client_tags: str | None = None
     client_defaults: dict = {}  # {"category", "tags_upload", "tags_reseed"} dal client del tracker
+    # Il tracker ha la sessione web: il claim della resurrection lo fa Nazgarr
+    # prima del reseed (nazgarr/upload/execute.py::_claim_resurrection).
+    auto_resurrection: bool = False
 
     @classmethod
     def from_model(
@@ -401,6 +404,7 @@ class UploadTargetResponse(BaseModel):
         return cls(
             id=t.id, tracker_id=t.tracker_id, tracker_label=t.tracker.label,
             tracker_base_url=t.tracker.base_url.rstrip("/") if t.tracker.base_url else None,
+            auto_resurrection=bool(t.tracker.history_session_cookie),
             torrent_client_id=t.torrent_client_id,
             torrent_client_label=t.torrent_client.label if t.torrent_client else None,
             status=t.status, suggested_action=t.suggested_action, action=t.action,

@@ -70,7 +70,12 @@ CREATE TABLE IF NOT EXISTS tracker (
                                                       -- Fase 6's torrent_create.create_torrent()).
     history_mode            TEXT NOT NULL DEFAULT 'unsupported'
                             CHECK (history_mode IN ('api','scrape','unsupported')),
-    history_session_cookie  TEXT,                   -- if history_mode='scrape'
+    history_session_cookie  TEXT,                   -- encrypted at rest; the Cookie line of the user's
+                                                    -- website login (UNIT3D: log in with "Remember me").
+                                                    -- Used for the resurrection claim before a reseed of a
+                                                    -- dead torrent (nazgarr/adapters/tracker/unit3d_web.py,
+                                                    -- user decision 2026-11-10), and for history_mode='scrape'
+                                                    -- if that is ever built. Never returned by the API.
     rate_limit_per_min      INTEGER DEFAULT 30,
     enabled                 BOOLEAN NOT NULL DEFAULT 1,
     torrent_client_id       INTEGER,

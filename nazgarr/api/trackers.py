@@ -11,6 +11,8 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
 
+from nazgarr.adapters.tracker import unit3d_web
+from nazgarr.adapters.tracker.base import NotSupportedError
 from nazgarr.api.types import (
     HttpUrlStr,
     check_destinations,
@@ -19,6 +21,7 @@ from nazgarr.api.types import (
     require_secrets_for_new_host,
 )
 from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
     Candidate,
     MatchAttempt,
@@ -30,6 +33,7 @@ from nazgarr.core.models import (
     UploadJob,
     UploadTarget,
 )
+from nazgarr.integrations import adapter_factory
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 from nazgarr.torrents import tracker_icons
@@ -60,6 +64,9 @@ class TrackerCreateRequest(BaseModel):
     announce_url: HttpUrlStr | None = None  # necessario solo per creare un nuovo .torrent da caricare (Fase 6, §9)
     rate_limit_per_min: int | None = Field(default=None, ge=0, le=RATE_LIMIT_MAX)
     rss_key: str | None = None  # facoltativa: appresa in automatico dall'API
+    # La riga Cookie del login sul sito (con "Ricordami"): facoltativa, per il
+    # claim automatico della resurrection (nazgarr/adapters/tracker/unit3d_web.py).
+    session_cookie: str | None = None
     torrent_client_id: int | None = None  # client per i reseed di questo tracker, None = il primo abilitato
     language: str | None = None  # ISO 639-1, es. "it": per i nomi degli upload (nazgarr/upload/naming.py)
     # Requisito di seed (hit and run), facoltativo: nazgarr/torrents/seed_requirements.py.
@@ -80,6 +87,7 @@ class TrackerUpdateRequest(BaseModel):
     rate_limit_per_min: int | None = Field(default=None, ge=0, le=RATE_LIMIT_MAX)
     enabled: bool | None = None
     rss_key: str | None = None  # "" la cancella (torna al solo recupero automatico)
+    session_cookie: str | None = None  # "" la cancella (niente più claim automatico)
     torrent_client_id: int | None = None  # esplicitamente null = torna al primo client abilitato
     language: str | None = None  # esplicitamente null o "" = nessuna lingua
     min_seed_time_seconds: int | None = Field(default=None, ge=0)  # esplicitamente null = nessun minimo
@@ -109,6 +117,8 @@ class TrackerResponse(BaseModel):
     rate_limit_per_min: int | None
     enabled: bool
     has_rss_key: bool = False  # mai la chiave stessa, solo se ce n'è una (manuale o appresa)
+    # Il cookie della sessione web apre tutto l'account: l'API dice solo se c'è.
+    has_session_cookie: bool = False
     torrent_client_id: int | None = None
     language: str | None = None
     min_seed_time_seconds: int | None = None
@@ -132,7 +142,8 @@ class TrackerResponse(BaseModel):
             id=t.id, label=t.label, adapter_type=t.adapter_type, base_url=t.base_url,
             insecure_public_url=insecure_public_url(t.base_url), has_announce_url=bool(t.announce_url),
             rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
-            has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id, language=t.language,
+            has_rss_key=bool(t.rss_key), has_session_cookie=bool(t.history_session_cookie),
+            torrent_client_id=t.torrent_client_id, language=t.language,
             min_seed_time_seconds=t.min_seed_time_seconds, min_ratio=t.min_ratio, seed_rule=t.seed_rule or "any",
             config=plugin_config.public_for_row(t, "tracker"),
             upload_profile=summary,
@@ -154,6 +165,16 @@ def _language(raw: str | None) -> str | None:
     if value not in LANGUAGE_CODES:
         raise HTTPException(status_code=400, detail=coded_detail("tracker_language_invalid", language=raw))
     return value
+
+
+def _session_cookie(raw: str | None) -> str | None:
+    """La riga Cookie pulita da salvare, None per "" (la cancella)."""
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return unit3d_web.normalize_cookie(raw)
+    except unit3d_web.InvalidCookie as exc:
+        raise HTTPException(status_code=400, detail=coded_detail("tracker_session_cookie_invalid")) from exc
 
 
 def _get_tracker_or_404(session: Session, tracker_id: int) -> Tracker:
@@ -186,6 +207,7 @@ def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_se
         api_token=body.api_token, announce_url=body.announce_url,
         rate_limit_per_min=body.rate_limit_per_min or 30,
         rss_key=body.rss_key.strip() if body.rss_key and body.rss_key.strip() else None,
+        history_session_cookie=_session_cookie(body.session_cookie),
         torrent_client_id=body.torrent_client_id, language=_language(body.language),
         min_seed_time_seconds=body.min_seed_time_seconds, min_ratio=body.min_ratio, seed_rule=body.seed_rule,
     )
@@ -208,8 +230,11 @@ def update_tracker(
         ("api_token", tracker.api_token, body.api_token),
     ) if stored and sent is None] + plugin_config.secrets_not_resent(tracker, "tracker", body.config)
     require_secrets_for_new_host(tracker.base_url, body.base_url, missing)
-    if body.base_url is not None and host_changed(tracker.base_url, body.base_url) and body.rss_key is None:
-        tracker.rss_key = None  # si riimpara dal nuovo host, non gli si manda quella del vecchio
+    if body.base_url is not None and host_changed(tracker.base_url, body.base_url):
+        if body.rss_key is None:
+            tracker.rss_key = None  # si riimpara dal nuovo host, non gli si manda quella del vecchio
+        if body.session_cookie is None:
+            tracker.history_session_cookie = None  # la sessione di un altro sito: mai mandata al nuovo
     if body.label is not None:
         tracker.label = body.label
     if body.base_url is not None:
@@ -228,6 +253,8 @@ def update_tracker(
         tracker.enabled = body.enabled
     if body.rss_key is not None:
         tracker.rss_key = body.rss_key.strip() or None
+    if body.session_cookie is not None:
+        tracker.history_session_cookie = _session_cookie(body.session_cookie)
     if "torrent_client_id" in body.model_fields_set:
         tracker.torrent_client_id = body.torrent_client_id
     if "language" in body.model_fields_set:
@@ -239,6 +266,28 @@ def update_tracker(
         _apply_config(tracker, body.config, creating=False)
     session.commit()
     return TrackerResponse.from_model(tracker)
+
+
+class TrackerSessionCheckResponse(BaseModel):
+    # unsupported: l'adapter del tracker non usa il sito (un plugin).
+    status: Literal["ok", "no_session", "session_expired", "failed", "unsupported"]
+    reason: str | None = None  # perché non è andata, in inglese (il testo dell'adapter)
+
+
+@router.post("/{tracker_id}/session-check", response_model=TrackerSessionCheckResponse)
+def check_session(tracker_id: int, session: Session = Depends(get_session)):
+    """Se il cookie della sessione web salvato vale ancora: una pagina del
+    sito in sola lettura, niente viene inviato."""
+    tracker = _get_tracker_or_404(session, tracker_id)
+    try:
+        with adapter_factory.tracker(tracker) as adapter:
+            result = adapter.check_web_session()
+    except NotSupportedError:
+        return TrackerSessionCheckResponse(status="unsupported")
+    except Exception as exc:
+        return TrackerSessionCheckResponse(status="failed", reason=safe_error(exc))
+    status = result.status if result.status in ("ok", "no_session", "session_expired") else "failed"
+    return TrackerSessionCheckResponse(status=status, reason=result.detail)
 
 
 @router.get("/{tracker_id}/icon")
