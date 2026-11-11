@@ -30,8 +30,10 @@ logger = logging.getLogger(__name__)
 # "filename_parser") si rileggono una volta: la v1 cercava su TMDB solo il
 # titolo base (senza il sottotitolo che guessit mette in alternative_title)
 # e con `year` invece di `primary_release_year` — "Mission Impossible
-# Fallout (2018)" poteva diventare un altro film della saga.
-IDENTITY_RULES_VERSION = "2"
+# Fallout (2018)" poteva diventare un altro film della saga. La v3: in
+# "08 - Titolo 426.mkv" l'episodio è il numero davanti, non S04E26
+# (nazgarr/library/guess.py, 2026-11-11).
+IDENTITY_RULES_VERSION = "3"
 IDENTITY_RULES_KEY = "identity_rules_version"
 ARR_SOURCES = ("radarr", "sonarr")
 
