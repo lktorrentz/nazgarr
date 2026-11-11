@@ -274,21 +274,27 @@ def detect_with_fallback(name: str, fallback: str | None = None) -> dict:
 # --- dal MediaInfo --------------------------------------------------------------
 
 
+# Risoluzione, larghezza minima, altezza minima: la tabella di ITTup
+# (ittup/core/media.py, RESOLUTION_THRESHOLDS; decisione dell'utente,
+# 2026-11-11). Basta uno dei due lati: un video che non è 16:9 è ridotto da
+# un lato solo, l'altezza per i film scope (1920x800), la larghezza per i 4:3
+# e gli anamorfici (1440x1080). Sotto il 576p è 480p, il tracker non ha di
+# meno: 720x540 è 576p, 736x414 e 640x360 sono 480p.
+_RESOLUTION_THRESHOLDS = (
+    ("2160", 3200, 1800),
+    ("1080", 1600, 900),
+    ("720", 1100, 600),
+    ("576", 960, 540),
+)
+
+
 def mi_resolution(video: dict) -> str | None:
     width, height = video.get("width") or 0, video.get("height") or 0
     if not width and not height:
         return None
     interlaced = str(video.get("scan_type") or "").lower() in ("interlaced", "mbaff", "paff")
-    if height >= 2000 or width >= 3800:
-        base = "2160"
-    elif height >= 1000 or width >= 1900:
-        base = "1080"
-    elif height >= 700 or width >= 1260:
-        base = "720"
-    elif height >= 560:
-        base = "576"
-    else:
-        base = "480"
+    base = next((base for base, min_width, min_height in _RESOLUTION_THRESHOLDS
+                 if width >= min_width or height >= min_height), "480")
     return f"{base}{'i' if interlaced and base in ('1080', '576', '480') else 'p'}"
 
 

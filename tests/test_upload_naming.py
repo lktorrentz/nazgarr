@@ -2,12 +2,20 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from pymediainfo import MediaInfo
 
 from nazgarr.core.models import TrackerUploadProfile
 from nazgarr.library.mediainfo import summarize
 from nazgarr.upload import profiles as upload_profiles
-from nazgarr.upload.naming import build_name, detect, release_values, resolution_format, with_tracker_language
+from nazgarr.upload.naming import (
+    build_name,
+    detect,
+    mi_resolution,
+    release_values,
+    resolution_format,
+    with_tracker_language,
+)
 from tests.upload_helpers import make_tracker
 
 MEDIAINFO = summarize(MediaInfo((Path(__file__).parent / "fixtures" / "mediainfo_remux.xml").read_text()), "x.mkv")
@@ -541,3 +549,29 @@ def test_bamtech_audio_means_a_web_dl(db_session):
                                {"video": video, "audio": [{"format": "E-AC-3"}]}, {}, None)
     assert from_text["source"] == "WEB-DL"
     assert not streaming_audio([{"title": "English"}], "General\nTitle : BAMTech\n")  # solo nell'audio
+
+
+@pytest.mark.parametrize(("width", "height", "resolution"), [
+    # La tabella di ITTup (decisione dell'utente, 2026-11-11), con i suoi casi.
+    (3840, 2160, "2160p"), (3840, 1600, "2160p"), (2880, 2160, "2160p"), (3200, 1800, "2160p"),
+    (1920, 1080, "1080p"), (1920, 800, "1080p"), (1440, 1080, "1080p"), (1080, 1080, "1080p"), (1600, 900, "1080p"),
+    (1280, 720, "720p"), (1280, 536, "720p"), (960, 720, "720p"), (1152, 480, "720p"),
+    (1024, 576, "576p"), (720, 576, "576p"), (720, 540, "576p"), (960, 540, "576p"), (1024, 436, "576p"),
+    (720, 480, "480p"), (736, 414, "480p"), (720, 404, "480p"), (640, 360, "480p"), (480, 270, "480p"),
+])
+def test_the_resolution_is_the_highest_one_reached_by_the_width_or_the_height(width, height, resolution):
+    assert mi_resolution({"width": width, "height": height}) == resolution
+
+
+def test_without_the_height_the_width_decides_and_without_both_nothing():
+    assert mi_resolution({"width": 1920}) == "1080p"
+    assert mi_resolution({"width": 736}) == "480p"
+    assert mi_resolution({}) is None
+
+
+@pytest.mark.parametrize(("width", "height", "resolution"), [
+    (1920, 1080, "1080i"), (1440, 1080, "1080i"), (720, 576, "576i"), (720, 540, "576i"), (720, 480, "480i"),
+    (1280, 720, "720p"), (3840, 2160, "2160p"),
+])
+def test_an_interlaced_video_has_an_interlaced_resolution_when_the_tracker_has_one(width, height, resolution):
+    assert mi_resolution({"width": width, "height": height, "scan_type": "Interlaced"}) == resolution
