@@ -35,7 +35,7 @@ FROM mwader/static-ffmpeg:7.1@sha256:a8090df5f5608daef387e1b2e93b98aaacb4d92153a
 
 # Stage finale: backend Python + frontend statico servito dallo stesso
 # container (nazgarr/web/frontend.py) - un solo container con supervisord, un solo processo (CLAUDE.md).
-FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 # MediaInfo non serve dal sistema: pymediainfo porta con sé libmediainfo
 # nelle sue wheel Linux (amd64 e arm64), e la CLI non viene mai chiamata.
