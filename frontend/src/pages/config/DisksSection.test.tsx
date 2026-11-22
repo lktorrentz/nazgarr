@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { isValidElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DisksSection } from '@/pages/config/DisksSection'
@@ -23,6 +24,9 @@ const preview = {
   },
 }
 const refetch = vi.fn()
+const verifyDisk = vi.fn()
+const toast = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn(), success: vi.fn() }))
+vi.mock('sonner', () => ({ toast }))
 const previewQuery = { isFetching: false, error: null as Error | null, failed: false }
 
 vi.mock('@/api/hooks/disks', () => ({
@@ -37,7 +41,7 @@ vi.mock('@/api/hooks/disks', () => ({
     error: enabled ? previewQuery.error : null,
     refetch,
   }),
-  useVerifyDisk: () => ({ ...mutation, data: undefined }),
+  useVerifyDisk: () => ({ mutate: verifyDisk, isPending: false, data: undefined }),
   useAddDiskFolder: () => mutation,
   useRemoveDiskFolder: () => ({ mutate: remove, isPending: false }),
   useBrowseDisk: () => ({ data: undefined, isPending: false }),
@@ -126,5 +130,27 @@ describe('deleting a disk', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     expect((screen.getAllByRole('button', { name: 'Delete' }).at(-1) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('says why a link with different inodes is not a hardlink, from the filesystem', () => {
+    verifyDisk.mockImplementation((_id: number, options: { onSuccess: (result: unknown) => void }) =>
+      options.onSuccess({
+        consistent: false,
+        checks: [{
+          code: 'hardlink_inode_mismatch', level: 'error',
+          params: { source: 'DownloadArr', folder: 'DownloadArr', fstype: 'cifs', hint: 'smb' },
+        }],
+      }),
+    )
+    render(<DisksSection />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Test disk/ }))
+
+    expect(toast.error).toHaveBeenCalledWith('The disk has problems.', expect.anything())
+    const { description } = toast.error.mock.calls[0][1] as { description: unknown }
+    expect(isValidElement(description)).toBe(true)
+    render(<>{description as React.ReactNode}</>)
+    expect(screen.getByText(/SMB share without serverino/)).toBeTruthy()
+    expect(screen.getByText(/\(cifs\)/)).toBeTruthy()
   })
 })

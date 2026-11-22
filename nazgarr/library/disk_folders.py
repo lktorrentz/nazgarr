@@ -26,6 +26,7 @@ import secrets
 
 from sqlalchemy.orm import Session
 
+from nazgarr.core import mounts
 from nazgarr.core.errors import CodedError
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import DISK_FOLDER_KINDS, Disk, DiskFolder
@@ -165,6 +166,34 @@ def _check(code: str, level: str = "ok", **params) -> dict:
     return {"code": code, "level": level, "params": params}
 
 
+# Dove gli hardlink riescono ma i due nomi hanno inode diversi, e cosa fare:
+# Nazgarr riconosce gli hardlink dall'inode (segnalato da un utente,
+# 2026-11-22, prima era un "not the same file" che non diceva niente).
+_SMB_FSTYPES = {"cifs", "smb3", "smbfs"}
+_VIRTUAL_FSTYPES = {"9p", "virtiofs", "fakeowner"}
+
+
+def _inode_hint(fstype: str | None) -> str:
+    """smb: montata senza serverino (o il kernel l'ha spento); mergerfs:
+    inodecalc=path-hash; fuse: un FUSE o un filesystem virtuale che non
+    mantiene gli inode; other: non si sa, i casi noti nel messaggio."""
+    if fstype in _SMB_FSTYPES:
+        return "smb"
+    if fstype == "fuse.mergerfs":
+        return "mergerfs"
+    if fstype and (fstype == "fuse" or fstype.startswith("fuse.") or fstype in _VIRTUAL_FSTYPES):
+        return "fuse"
+    return "other"
+
+
+def _inode_mismatch(source: str, relative: str, folder: str) -> dict:
+    """Il link c'è (link() riuscito), ma il filesystem mostra i due nomi con
+    inode diversi: per Nazgarr non sarebbero lo stesso file."""
+    fstype = mounts.fstype_of(folder)
+    return _check("hardlink_inode_mismatch", "error", source=source, folder=relative, fstype=fstype or "",
+                  hint=_inode_hint(fstype))
+
+
 def _link_test(anchor_relative: str, anchor: str, targets: list[tuple[str, str]]) -> list[dict]:
     """Un file vuoto nella prima cartella e un hardlink verso ogni altra:
     la prova che gli hardlink funzionano davvero fra quelle cartelle (uno
@@ -192,10 +221,10 @@ def _link_test(anchor_relative: str, anchor: str, targets: list[tuple[str, str]]
             try:
                 # Attraverso hardlinks.py come ogni hardlink (mai un link simbolico seguito).
                 created = hardlinks.create_links([(source, target)])
-                same = os.stat(target).st_ino == os.stat(source).st_ino
-                checks.append(_check("hardlink_ok" if same else "hardlink_failed", "ok" if same else "error",
-                                     source=anchor_relative, folder=relative,
-                                     error=None if same else "not the same file"))
+                if os.stat(target).st_ino == os.stat(source).st_ino:
+                    checks.append(_check("hardlink_ok", source=anchor_relative, folder=relative, error=None))
+                else:
+                    checks.append(_inode_mismatch(anchor_relative, relative, folder))
             except OSError as exc:
                 checks.append(_check("hardlink_failed", "error", source=anchor_relative, folder=relative,
                                      error=exc.strerror or str(exc)))

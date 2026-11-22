@@ -130,3 +130,16 @@ def test_the_data_folder_given_apart_is_still_left_out_of_the_mounts(tmp_path):
     text = "\n".join([_line(str(data), device="9:1"), _line(str(media), device="9:2")])
     scope = mounts.scope(None, [], mounts=mounts.parse_mountinfo(text), container=True, data_dir=str(data))
     assert [m.mount_point for m in scope.mounts] == [str(media)]
+
+
+def test_the_filesystem_of_a_path_is_the_one_of_the_deepest_mount_holding_it(tmp_path):
+    media = tmp_path / "mnt" / "media"
+    (media / "DownloadArr").mkdir(parents=True)
+    parsed = mounts.parse_mountinfo("\n".join([
+        *SYSTEM, _line(str(tmp_path / "mnt"), fstype="ext4", device="8:1"),
+        _line(str(media), fstype="cifs", source="//nas/data", device="0:60"),
+    ]))
+    assert mounts.fstype_of(str(media / "DownloadArr"), parsed) == "cifs"
+    assert mounts.fstype_of(str(tmp_path / "mnt" / "other"), parsed) == "ext4"
+    assert mounts.fstype_of(str(tmp_path / "mnt" / "media2"), parsed) == "ext4"  # non è dentro /mnt/media
+    assert mounts.fstype_of(str(media), []) is None

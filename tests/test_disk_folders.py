@@ -1,4 +1,5 @@
 import os
+import shutil
 import types
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from nazgarr.core import db as db_module
+from nazgarr.core import mounts
 from nazgarr.core.models import Disk, MediaFile, SeedFile
 from nazgarr.library import disk_folders, scanner
 from nazgarr.library.disk_folders import FolderError
@@ -170,6 +172,46 @@ def test_the_disk_test_says_what_is_wrong(db_session, disk, monkeypatch):
     result = disk_folders.test_disk(db_session, disk)
     failed = next(c for c in result["checks"] if c["code"] == "hardlink_failed")
     assert failed["params"] == {"source": "torrents", "folder": "movies", "error": "Invalid cross-device link"}
+
+
+def _copy_instead_of_linking(pairs):
+    """Come un filesystem che mostra inode diversi per due nomi dello stesso
+    file (SMB senza serverino): link() riesce, gli inode non coincidono."""
+    created = []
+    for source, target in pairs:
+        shutil.copyfile(source, target)
+        created.append(target)
+    return created
+
+
+def test_a_link_with_different_inodes_says_why_from_the_filesystem(db_session, disk, monkeypatch):
+    """Segnalato da un utente (2026-11-22): "not the same file" non diceva
+    niente. Il link c'è, ma Nazgarr riconosce gli hardlink dall'inode."""
+    disk_folders.add(db_session, disk, "seeding", "torrents")
+    monkeypatch.setattr(disk_folders.hardlinks, "create_links", _copy_instead_of_linking)
+    cifs = mounts.Mount(mount_point=disk.root_path, root="/", fstype="cifs", source="//nas/data", device="0:60")
+    monkeypatch.setattr(disk_folders.mounts, "read_mounts", lambda: [cifs])
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert result["ok"] is False
+    [check] = [c for c in result["checks"] if c["code"] == "hardlink_inode_mismatch"]
+    assert check["level"] == "error"
+    assert check["params"] == {"source": "torrents", "folder": "torrents", "fstype": "cifs", "hint": "smb"}
+    leftovers = [n for n in os.listdir(os.path.join(disk.root_path, "torrents")) if n.startswith(".nazgarr")]
+    assert leftovers == []
+
+    monkeypatch.setattr(disk_folders.mounts, "read_mounts", lambda: [])  # niente /proc: non si sa
+    [check] = [c for c in disk_folders.test_disk(db_session, disk)["checks"] if c["code"] == "hardlink_inode_mismatch"]
+    assert (check["params"]["fstype"], check["params"]["hint"]) == ("", "other")
+
+
+@pytest.mark.parametrize(("fstype", "hint"), [
+    ("cifs", "smb"), ("smb3", "smb"), ("fuse.mergerfs", "mergerfs"), ("fuse.rclone", "fuse"),
+    ("fuse.sshfs", "fuse"), ("9p", "fuse"), ("virtiofs", "fuse"), ("nfs4", "other"), ("xfs", "other"), (None, "other"),
+])
+def test_the_inode_hint_follows_the_filesystem(fstype, hint):
+    assert disk_folders._inode_hint(fstype) == hint
 
 
 def test_a_changed_st_dev_alone_is_only_a_warning_and_is_updated_when_links_work(db_session, disk):

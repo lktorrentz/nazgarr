@@ -139,8 +139,13 @@ function DiskTestButton({ diskId }: { diskId: number }) {
             const checks = result.checks ?? []
             const links = checks.filter((c) => c.code === 'hardlink_ok').length
             // st_dev cambiato: aggiornato se gli hardlink funzionano, se no lasciato com'era.
-            const key = (c: (typeof checks)[number]) =>
-              c.code === 'st_dev_changed' && !(c.params as { updated?: boolean }).updated ? 'st_dev_changed_kept' : c.code
+            // Inode diversi: il consiglio dipende dal filesystem (hint: smb, mergerfs, fuse, other).
+            const key = (c: (typeof checks)[number]) => {
+              const params = c.params as { updated?: boolean; hint?: string }
+              if (c.code === 'st_dev_changed' && !params.updated) return 'st_dev_changed_kept'
+              if (c.code === 'hardlink_inode_mismatch') return `hardlink_inode_mismatch_${params.hint ?? 'other'}`
+              return c.code
+            }
             const notes = checks
               .filter((c) => c.level !== 'ok')
               .map((c) => t(`disks.check.${key(c)}`, c.params as Record<string, string | number>))
