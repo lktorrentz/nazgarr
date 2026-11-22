@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from itertools import accumulate
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session, selectinload
 
@@ -15,7 +15,7 @@ from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient, Tracker
 from nazgarr.library import seeding
-from nazgarr.reseed import exclusive, review
+from nazgarr.reseed import approve_all, exclusive, review
 from nazgarr.reseed.executor import ExecutionError
 from nazgarr.torrents import client_labels
 from nazgarr.web.deps import get_or_404, get_session
@@ -354,6 +354,69 @@ def reject_review(review_id: int, session: Session = Depends(get_session)):
     except review.ReviewAlreadyDecidedError as exc:
         raise HTTPException(status_code=409, detail=coded_detail("review_already_decided", id=review_id)) from exc
     return ReviewResponse.from_model(row)
+
+
+class ApproveAllBatchResponse(BaseModel):
+    id: str
+    total: int
+    verify: bool  # con il controllo completo: "approved" = in coda per il controllo
+    done: int
+    approved: int
+    skipped: int  # decise da un'altra parte nel frattempo
+    failed: int
+    last_error: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+    @classmethod
+    def from_batch(cls, batch: approve_all.Batch) -> "ApproveAllBatchResponse":
+        return cls(
+            id=batch.id, total=batch.total, verify=batch.verify, done=batch.done, approved=batch.approved,
+            skipped=batch.skipped, failed=batch.failed, last_error=batch.last_error,
+            started_at=batch.started_at, finished_at=batch.finished_at,
+        )
+
+
+class ApproveAllStatus(BaseModel):
+    """Quante review prenderebbe "Approva tutti" adesso (mai quelle già in
+    verifica), e l'ultimo giro."""
+
+    recommended: int
+    below_threshold: int
+    verify_failed: int  # controllo completo già fallito: restano in coda
+    verify_before_execute: bool
+    batch: ApproveAllBatchResponse | None
+
+
+class ApproveAllRequest(BaseModel):
+    include_below_threshold: bool = False
+
+
+@router.get("/approve-all", response_model=ApproveAllStatus)
+def approve_all_status(session: Session = Depends(get_session)):
+    counts = approve_all.counts(session)
+    batch = approve_all.current()
+    return ApproveAllStatus(
+        recommended=counts.recommended, below_threshold=counts.below_threshold,
+        verify_failed=counts.verify_failed, verify_before_execute=review.verify_before_execute_enabled(session),
+        batch=ApproveAllBatchResponse.from_batch(batch) if batch else None,
+    )
+
+
+@router.post("/approve-all", response_model=ApproveAllBatchResponse, status_code=202)
+def approve_all_reviews(body: ApproveAllRequest, request: Request, background_tasks: BackgroundTasks,
+                        session: Session = Depends(get_session)):
+    """Approva in background le consigliate in coda, e con
+    include_below_threshold anche quelle sotto soglia, come dal pulsante di
+    ognuna (nazgarr/reseed/approve_all.py). L'avanzamento in GET."""
+    ids = approve_all.selected_ids(session, body.include_below_threshold)
+    try:
+        batch = approve_all.start(ids, verify=review.verify_before_execute_enabled(session))
+    except approve_all.InProgress as exc:
+        raise HTTPException(status_code=409, detail=coded_detail("approve_all_in_progress")) from exc
+    if ids:
+        background_tasks.add_task(approve_all.run, request.app.state.session_factory, batch, ids)
+    return ApproveAllBatchResponse.from_batch(batch)
 
 
 class ReconcileResponse(BaseModel):

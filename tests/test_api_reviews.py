@@ -97,7 +97,7 @@ def test_client_labels_of_a_reseed_are_chosen_on_its_review(client):
 _next_tmdb = iter(range(1000, 2000))
 
 
-def _review(client, status="pending", decided_by=None, seed_job=None):
+def _review(client, status="pending", decided_by=None, seed_job=None, verify_status=None):
     from nazgarr.core.models import SeedJob
 
     session = _session(client)
@@ -112,7 +112,7 @@ def _review(client, status="pending", decided_by=None, seed_job=None):
         )
         session.add(candidate)
         session.commit()
-        row = MatchReview(candidate_id=candidate.id, status=status, decided_by=decided_by)
+        row = MatchReview(candidate_id=candidate.id, status=status, decided_by=decided_by, verify_status=verify_status)
         session.add(row)
         if seed_job:
             session.add(SeedJob(candidate_id=candidate.id, final_status=seed_job))
@@ -174,3 +174,114 @@ def test_with_verification_a_decided_review_starts_no_check(client, monkeypatch)
 
     assert client.post(f"/api/reviews/{review_id}/approve").status_code == 409
     assert started == []
+
+
+def _statuses(client, ids):
+    session = _session(client)
+    try:
+        return [(row.status, row.verify_status) for row in (session.get(MatchReview, i) for i in ids)]
+    finally:
+        session.close()
+
+
+def _approve_all_queue(client):
+    # Una consigliata, una sotto soglia, una consigliata col controllo già
+    # fallito, una consigliata in verifica e una già eseguita.
+    return {
+        "recommended": _review(client, "auto_approved"),
+        "below": _review(client, "pending"),
+        "failed": _review(client, "auto_approved", verify_status="failed"),
+        "verifying": _review(client, "auto_approved", verify_status="verifying"),
+        "executed": _review(client, "auto_approved", seed_job="seeding"),
+    }
+
+
+def test_approve_all_takes_only_the_recommended_by_default(client, monkeypatch):
+    from nazgarr.reseed import approve_all, review
+
+    monkeypatch.setattr(approve_all, "_current", None)
+    executed = []
+    monkeypatch.setattr(review, "_try_execute", lambda session, row, **kw: executed.append(row.id))
+    _no_verification(client)
+    queue = _approve_all_queue(client)
+
+    status = client.get("/api/reviews/approve-all").json()
+    assert (status["recommended"], status["below_threshold"], status["verify_failed"]) == (1, 1, 1)
+    assert status["verify_before_execute"] is False
+    assert status["batch"] is None
+
+    response = client.post("/api/reviews/approve-all", json={})
+    assert response.status_code == 202
+    assert (response.json()["total"], response.json()["verify"]) == (1, False)
+
+    batch = client.get("/api/reviews/approve-all").json()["batch"]
+    assert batch["finished_at"] is not None
+    assert (batch["done"], batch["approved"], batch["skipped"], batch["failed"]) == (1, 1, 0, 0)
+    assert executed == [queue["recommended"]]
+    assert _statuses(client, [queue["below"], queue["failed"], queue["verifying"]]) == [
+        ("pending", None), ("auto_approved", "failed"), ("auto_approved", "verifying")]
+
+
+def test_approve_all_can_include_the_ones_below_the_threshold(client, monkeypatch):
+    from nazgarr.reseed import approve_all, review
+
+    monkeypatch.setattr(approve_all, "_current", None)
+    executed = []
+    monkeypatch.setattr(review, "_try_execute", lambda session, row, **kw: executed.append(row.id))
+    _no_verification(client)
+    queue = _approve_all_queue(client)
+
+    assert client.post("/api/reviews/approve-all", json={"include_below_threshold": True}).json()["total"] == 2
+    assert sorted(executed) == sorted([queue["recommended"], queue["below"]])
+    assert client.get("/api/reviews/approve-all").json()["recommended"] == 0
+
+
+def test_with_verification_approve_all_only_queues_the_checks(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from nazgarr.reseed import approve_all, full_check, review
+
+    monkeypatch.setattr(approve_all, "_current", None)
+    executed, started = [], []
+    monkeypatch.setattr(review, "_try_execute", lambda session, row, **kw: executed.append(row.id))
+
+    def start_check(*_args, review_id=None, **_kwargs):
+        started.append(review_id)
+        return SimpleNamespace(id=f"c{review_id}")
+
+    monkeypatch.setattr(full_check, "start_check", start_check)
+    queue = _approve_all_queue(client)
+
+    assert client.post("/api/reviews/approve-all", json={}).json()["verify"] is True
+    assert started == [queue["recommended"]]
+    assert executed == []
+    assert _statuses(client, [queue["recommended"]]) == [("auto_approved", "verifying")]
+    # In verifica non si conta più: un secondo clic non la riprende.
+    assert client.get("/api/reviews/approve-all").json()["recommended"] == 0
+
+
+def test_a_review_decided_meanwhile_is_skipped(client, monkeypatch):
+    from nazgarr.reseed import approve_all, review
+
+    executed = []
+    monkeypatch.setattr(review, "_try_execute", lambda session, row, **kw: executed.append(row.id))
+    _no_verification(client)
+    rejected = _review(client, "rejected", "user")
+    batch = approve_all.Batch(id="b", total=2, verify=False)
+
+    approve_all.run(client.app.state.session_factory, batch, [rejected, 999_999])
+
+    assert (batch.done, batch.approved, batch.skipped, batch.failed) == (2, 0, 2, 0)
+    assert batch.finished_at is not None
+    assert executed == []
+
+
+def test_only_one_approve_all_at_a_time(client, monkeypatch):
+    from nazgarr.reseed import approve_all
+
+    monkeypatch.setattr(approve_all, "_current", approve_all.Batch(id="running", total=5, verify=True))
+    _review(client, "auto_approved")
+
+    response = client.post("/api/reviews/approve-all", json={})
+    assert response.status_code == 409
+    assert response.json()["detail"] == {"code": "approve_all_in_progress", "params": {}}

@@ -34,6 +34,7 @@ import { episodeRanges, groupBySeason, seasonLabel } from '@/lib/reviewGroups'
 import { scrollRoot } from '@/lib/scrollRoot'
 import { parseApiDate, relativeFromNow } from '@/lib/time'
 import { cn } from '@/lib/utils'
+import { ApproveAllButton } from '@/pages/reseeding/ApproveAllButton'
 
 type Review = Schemas['ReviewResponse']
 type Layout = NonNullable<Review['layout']>
@@ -398,6 +399,11 @@ function ReviewCard() {
       <CardHeader>
         <CardTitle>{t('misc.review')}</CardTitle>
         {total > 0 && <CardDescription>{t('reseeding.queueTotal', { count: total })}</CardDescription>}
+        {total > 0 && (
+          <CardAction>
+            <ApproveAllButton />
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         {isPending && <p className="p-3 text-sm text-muted-foreground">{t('common.loading')}</p>}

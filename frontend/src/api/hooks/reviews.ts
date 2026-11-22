@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api, unwrap } from '@/api/client'
-import { pushActivity, updateActivity } from '@/lib/activity'
+import { api, type Schemas, unwrap } from '@/api/client'
+import { type Activity, pushActivity, updateActivity } from '@/lib/activity'
 import { trackVerification } from '@/lib/verification'
 import { t } from '@/lib/i18n'
 
@@ -190,5 +190,83 @@ export function useSetReviewClientLabels(reviewId: number) {
     mutationFn: (body: { client_category: string | null; client_tags: string | null }) =>
       unwrap(api.PUT('/api/reviews/{review_id}/client-labels', { params: { path: { review_id: reviewId } }, body })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reviews'] }),
+  })
+}
+
+// "Approva tutti" in cima alla coda (2026-11-22): quante review prenderebbe
+// adesso e l'ultimo giro. Letto all'apertura della conferma, sempre fresco:
+// i numeri sono quelli che l'utente approva.
+export function useApproveAllStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: ['reviews', 'approve-all'],
+    queryFn: () => unwrap(api.GET('/api/reviews/approve-all')),
+    enabled,
+    staleTime: 0,
+  })
+}
+
+type ApproveAllBatch = Schemas['ApproveAllBatchResponse']
+
+const APPROVE_ALL_POLL_MS = 1000
+
+function approveAllOutcome(batch: ApproveAllBatch): Partial<Omit<Activity, 'id' | 'createdAt'>> {
+  if (batch.total === 0) return { status: 'info', title: t('activity.nothingToApprove'), progress: null }
+  const title = t(batch.verify ? 'activity.approvedAllVerify' : 'activity.approvedMany', { count: batch.approved })
+  const notes = [
+    batch.skipped > 0 ? t('activity.decidedMeanwhile', { count: batch.skipped }) : null,
+    batch.failed > 0 ? t('activity.someFailed', { count: batch.failed }) : null,
+  ].filter(Boolean)
+  return {
+    status: batch.failed > 0 ? 'error' : 'success',
+    title: notes.length > 0 ? `${title} · ${notes.join(' · ')}` : title,
+    detail: batch.last_error ?? undefined,
+    progress: null,
+  }
+}
+
+// Il giro gira sul server (con la verifica spenta crea hardlink e aggiunge
+// torrent: minuti, con centinaia di review): qui lo si segue con una
+// notifica fino alla fine. Chiusa la pagina, il giro continua lo stesso.
+export function useApproveAll() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (includeBelowThreshold: boolean) => {
+      const activityId = pushActivity({ status: 'running', title: t('activity.approvingAll') })
+      try {
+        let batch = await unwrap(
+          api.POST('/api/reviews/approve-all', { body: { include_below_threshold: includeBelowThreshold } }),
+        )
+        // I controlli completi appena messi in coda: il watcher li segue.
+        queryClient.invalidateQueries({ queryKey: ['full-checks', 'all'] })
+        for (let polls = 1; batch.finished_at == null; polls++) {
+          updateActivity(activityId, {
+            title: t('activity.approvingMany', { count: batch.total }),
+            detail: `${batch.done} / ${batch.total}`,
+            progress: batch.total ? (100 * batch.done) / batch.total : 0,
+          })
+          await new Promise((resolve) => setTimeout(resolve, APPROVE_ALL_POLL_MS))
+          const status = await unwrap(api.GET('/api/reviews/approve-all'))
+          if (status.batch?.id !== batch.id) break // Nazgarr riavviato nel frattempo
+          batch = status.batch
+          if (polls % 5 === 0) queryClient.invalidateQueries({ queryKey: ['reviews', 'queue'] })
+        }
+        updateActivity(activityId, approveAllOutcome(batch))
+        return batch
+      } catch (error) {
+        updateActivity(activityId, {
+          status: 'error',
+          title: t('activity.approveFailed'),
+          detail: error instanceof Error ? error.message : String(error),
+          progress: null,
+        })
+        throw error
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['reviews'] })
+      queryClient.invalidateQueries({ queryKey: ['full-checks', 'all'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['library'] })
+    },
   })
 }

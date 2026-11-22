@@ -1,12 +1,14 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { AlertCircleIcon, CheckCircle2Icon, InfoIcon, Loader2Icon, XIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
-import { api, type Schemas, unwrap } from '@/api/client'
+import type { Schemas } from '@/api/client'
+import { isActiveCheck as isActive, useFullChecks } from '@/api/hooks/fullChecks'
 import { useRecentSeedJobs } from '@/api/hooks/reviews'
 import { Progress } from '@/components/ui/progress'
 import {
   dismissActivity,
+  hasActivity,
   pushActivity,
   updateActivity,
   useActivities,
@@ -16,9 +18,10 @@ import {
 import { formatBytes } from '@/lib/library-filters'
 import {
   activityForCheck,
-  hasTrackedVerifications,
+  noteQueued,
   trackVerification,
   untrackVerification,
+  wasQueued,
 } from '@/lib/verification'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -65,8 +68,6 @@ function useSeedJobWatcher() {
 
 type FullCheck = Schemas['FullCheckResponse']
 
-const isActive = (check: FullCheck) => check.status === 'queued' || check.status === 'running'
-
 function runningPatch(check: FullCheck): Partial<Activity> {
   if (check.status === 'queued') return { title: t('activity.verifyQueued'), progress: 0 }
   if (check.stage === 'executing') return { title: t('activity.verifyPassedAdding'), progress: 100 }
@@ -99,23 +100,28 @@ function finalPatch(check: FullCheck): Partial<Activity> {
 // Segue i controlli completi partiti da un'approvazione (verify_before_execute):
 // avanzamento nella notifica, poi l'esito e l'eventuale aggiunta al client.
 // Anche quelli già in corso quando si apre la pagina (ricarica, altra scheda).
+// Quelli in coda senza una notifica loro ("Approva tutti", una stagione
+// intera: centinaia, uno alla volta) stanno in una notifica sola, "N in
+// coda"; ognuno prende la sua quando parte (2026-11-22).
 function useVerificationWatcher() {
   const queryClient = useQueryClient()
-  const { data: checks } = useQuery({
-    queryKey: ['full-checks', 'all'],
-    queryFn: () => unwrap(api.GET('/api/full-checks')),
-    refetchInterval: (query) =>
-      hasTrackedVerifications() || query.state.data?.some((c) => c.purpose === 'verify' && isActive(c)) ? 1000 : 15_000,
-  })
+  const { data: checks } = useFullChecks()
+  const queuedSummary = useRef<string | null>(null)
 
   useEffect(() => {
     if (!checks) return
     let finished = false
+    let queued = 0
     for (const check of checks) {
       if (check.purpose !== 'verify') continue
       let activityId = activityForCheck(check.id)
       if (activityId == null) {
-        if (!isActive(check)) continue // finito prima che la pagina lo seguisse: niente da annunciare
+        if (check.status === 'queued') {
+          queued += 1
+          noteQueued(check.id)
+          continue
+        }
+        if (!isActive(check) && !wasQueued(check.id)) continue // finito prima che la pagina lo seguisse: niente da annunciare
         activityId = pushActivity({ status: 'running', title: t('activity.verifyQueued'), detail: check.label })
         trackVerification(check.id, activityId)
       }
@@ -126,6 +132,15 @@ function useVerificationWatcher() {
         untrackVerification(check.id)
         finished = true
       }
+    }
+    const summary = queuedSummary.current
+    if (queued === 0) {
+      if (summary) dismissActivity(summary)
+      queuedSummary.current = null
+    } else {
+      const patch = { status: 'running' as const, title: t('activity.verifyQueuedMany', { count: queued }), progress: null }
+      if (summary && hasActivity(summary)) updateActivity(summary, patch)
+      else queuedSummary.current = pushActivity(patch)
     }
     if (finished) {
       queryClient.invalidateQueries({ queryKey: ['reviews'] })
