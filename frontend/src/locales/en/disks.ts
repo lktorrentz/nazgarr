@@ -56,6 +56,14 @@ export const disks = {
   'disks.check.link_test_write_failed': 'Cannot write in {folder} ({error}): check PUID/PGID and the permissions.',
   'disks.check.hardlink_failed': 'Hardlink from {source} to {folder} failed ({error}).',
   'disks.check.hardlink_ok': 'Hardlink from {source} to {folder} works.',
+  'disks.check.hardlink_inode_mismatch_smb':
+    "Hardlink from {source} to {folder} created, but the filesystem ({fstype}) shows the two names with different inode numbers, and Nazgarr recognises hardlinks by their inode. This is an SMB share without serverino: mount it with serverino (if it is already there, check dmesg: the kernel turns it off when the server gives no reliable IDs) or use NFS.",
+  'disks.check.hardlink_inode_mismatch_mergerfs':
+    "Hardlink from {source} to {folder} created, but the filesystem ({fstype}) shows the two names with different inode numbers, and Nazgarr recognises hardlinks by their inode. mergerfs computes inodes from the path (inodecalc=path-hash): use inodecalc=hybrid-hash, the default.",
+  'disks.check.hardlink_inode_mismatch_fuse':
+    "Hardlink from {source} to {folder} created, but the filesystem ({fstype}) shows the two names with different inode numbers, and Nazgarr recognises hardlinks by their inode. This filesystem does not keep the inodes of hardlinks: mount the data with one that does (a local disk, NFS, SMB with serverino).",
+  'disks.check.hardlink_inode_mismatch_other':
+    "Hardlink from {source} to {folder} created, but the filesystem shows the two names with different inode numbers, and Nazgarr recognises hardlinks by their inode. It happens with SMB mounted without serverino and with some FUSE filesystems (mergerfs with inodecalc=path-hash, rclone, sshfs): check how the disk is mounted.",
   'disks.check.no_folders': 'No folder to test: add one.',
   'disks.check.st_dev_changed': 'The filesystem id changed ({old} → {new}): it happens after a remount, and is normal on FUSE (e.g. Unraid /mnt/user). Hardlinks work, the reference is updated.',
   'disks.check.st_dev_changed_kept': "The filesystem id changed ({old} → {new}): the reference stays as it was until hardlinks work.",

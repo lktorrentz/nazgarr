@@ -107,6 +107,14 @@ def parse_mountinfo(text: str) -> list[Mount]:
     return mounts
 
 
+def fstype_of(path: str, mounts: list[Mount] | None = None) -> str | None:
+    """Il filesystem su cui sta un percorso: quello del mount più profondo
+    che lo contiene. None se non si sa (niente /proc, es. macOS)."""
+    real = os.path.realpath(path)
+    found = [m for m in (read_mounts() if mounts is None else mounts) if _inside(real, m.mount_point)]
+    return max(found, key=lambda m: len(m.mount_point)).fstype if found else None
+
+
 def in_container() -> bool:
     return os.environ.get("NAZGARR_CONTAINER") == "1" or os.path.exists("/.dockerenv")
 

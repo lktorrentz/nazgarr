@@ -55,6 +55,14 @@ export const disks = {
   'disks.check.link_test_write_failed': 'Impossibile scrivere in {folder} ({error}): controlla PUID/PGID e i permessi.',
   'disks.check.hardlink_failed': 'Hardlink da {source} a {folder} non riuscito ({error}).',
   'disks.check.hardlink_ok': 'Hardlink da {source} a {folder} riuscito.',
+  'disks.check.hardlink_inode_mismatch_smb':
+    "Hardlink da {source} a {folder} creato, ma il filesystem ({fstype}) mostra i due nomi con inode diversi, e Nazgarr riconosce gli hardlink dall'inode. È una condivisione SMB senza serverino: montala con serverino (se c'è già, guarda dmesg: il kernel lo spegne quando il server non dà ID affidabili) o usa NFS.",
+  'disks.check.hardlink_inode_mismatch_mergerfs':
+    "Hardlink da {source} a {folder} creato, ma il filesystem ({fstype}) mostra i due nomi con inode diversi, e Nazgarr riconosce gli hardlink dall'inode. mergerfs calcola gli inode dal percorso (inodecalc=path-hash): usa inodecalc=hybrid-hash, il default.",
+  'disks.check.hardlink_inode_mismatch_fuse':
+    "Hardlink da {source} a {folder} creato, ma il filesystem ({fstype}) mostra i due nomi con inode diversi, e Nazgarr riconosce gli hardlink dall'inode. Questo filesystem non mantiene gli inode degli hardlink: monta i dati con uno che li mantiene (un disco locale, NFS, SMB con serverino).",
+  'disks.check.hardlink_inode_mismatch_other':
+    "Hardlink da {source} a {folder} creato, ma il filesystem mostra i due nomi con inode diversi, e Nazgarr riconosce gli hardlink dall'inode. Succede con SMB montato senza serverino e con alcuni FUSE (mergerfs con inodecalc=path-hash, rclone, sshfs): controlla come è montato il disco.",
   'disks.check.no_folders': 'Nessuna cartella da provare: aggiungine una.',
   'disks.check.st_dev_changed': "L'identificativo del filesystem è cambiato ({old} → {new}): succede dopo un rimontaggio, ed è normale su FUSE (es. /mnt/user di Unraid). Gli hardlink funzionano, il riferimento è aggiornato.",
   'disks.check.st_dev_changed_kept': "L'identificativo del filesystem è cambiato ({old} → {new}): il riferimento resta quello di prima finché gli hardlink non funzionano.",
