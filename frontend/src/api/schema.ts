@@ -1279,6 +1279,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/approve-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Approve All Status */
+        get: operations["approve_all_status_api_reviews_approve_all_get"];
+        put?: never;
+        /**
+         * Approve All Reviews
+         * @description Approva in background le consigliate in coda, e con
+         *     include_below_threshold anche quelle sotto soglia, come dal pulsante di
+         *     ognuna (nazgarr/reseed/approve_all.py). L'avanzamento in GET.
+         */
+        post: operations["approve_all_reviews_api_reviews_approve_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/seed-jobs/recent": {
         parameters: {
             query?: never;
@@ -2823,6 +2846,56 @@ export interface components {
             /** Backups Keep */
             backups_keep: number;
             migration_backup?: components["schemas"]["MigrationBackupInfo"] | null;
+        };
+        /** ApproveAllBatchResponse */
+        ApproveAllBatchResponse: {
+            /** Id */
+            id: string;
+            /** Total */
+            total: number;
+            /** Verify */
+            verify: boolean;
+            /** Done */
+            done: number;
+            /** Approved */
+            approved: number;
+            /** Skipped */
+            skipped: number;
+            /** Failed */
+            failed: number;
+            /** Last Error */
+            last_error: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Finished At */
+            finished_at: string | null;
+        };
+        /** ApproveAllRequest */
+        ApproveAllRequest: {
+            /**
+             * Include Below Threshold
+             * @default false
+             */
+            include_below_threshold: boolean;
+        };
+        /**
+         * ApproveAllStatus
+         * @description Quante review prenderebbe "Approva tutti" adesso (mai quelle già in
+         *     verifica), e l'ultimo giro.
+         */
+        ApproveAllStatus: {
+            /** Recommended */
+            recommended: number;
+            /** Below Threshold */
+            below_threshold: number;
+            /** Verify Failed */
+            verify_failed: number;
+            /** Verify Before Execute */
+            verify_before_execute: boolean;
+            batch: components["schemas"]["ApproveAllBatchResponse"] | null;
         };
         /** ArrHookResponse */
         ArrHookResponse: {
@@ -8972,6 +9045,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_all_status_api_reviews_approve_all_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApproveAllStatus"];
+                };
+            };
+        };
+    };
+    approve_all_reviews_api_reviews_approve_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveAllRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApproveAllBatchResponse"];
                 };
             };
             /** @description Validation Error */

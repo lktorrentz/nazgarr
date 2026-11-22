@@ -9,6 +9,7 @@
  "api_key_not_allowed": "API keys can only be managed after logging in",
  "api_key_not_found": "API key not found",
  "api_key_read_only": "This API key is read only",
+ "approve_all_in_progress": "Approve all is already running: wait for it to finish.",
  "arr_hook_invalid": "Webhook event is not valid JSON",
  "arr_hook_too_large": "Webhook event too large",
  "arr_hook_unauthorized": "Missing or wrong webhook password for this instance",

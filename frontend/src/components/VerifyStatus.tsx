@@ -1,5 +1,5 @@
 import type { Schemas } from '@/api/client'
-import { useFullCheck } from '@/api/hooks/fullChecks'
+import { useFullChecks } from '@/api/hooks/fullChecks'
 import { ErrorsPopover } from '@/components/ErrorsPopover'
 import { StatusBadge } from '@/components/StateBadge'
 import { Progress } from '@/components/ui/progress'
@@ -12,7 +12,8 @@ type Review = Schemas['ReviewResponse']
 // in corso con l'avanzamento, fallito con il motivo (la review resta qui).
 export function VerifyStatus({ review }: { review: Review }) {
   const verifying = review.verify_status === 'verifying'
-  const { data: check } = useFullCheck(verifying ? review.verify_check_id ?? null : null)
+  const { data: checks } = useFullChecks({ poll: false })
+  const check = verifying ? checks?.find((c) => c.id === review.verify_check_id) : undefined
   if (verifying) {
     const pct = check?.bytes_total ? (100 * check.bytes_done) / check.bytes_total : 0
     return (

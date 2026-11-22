@@ -56,6 +56,7 @@ export const errors = {
   // Il testo dell'errore (inglese, dall'esecutore) di un retry rifatto e fallito.
   'errors.seed_job_retry_failed': 'Execution {id}: {error}',
   'errors.review_already_verifying': 'Review {id} is already being verified: wait for its full hash check to finish.',
+  'errors.approve_all_in_progress': 'Approve all is already running: wait for it to finish.',
   'errors.full_check_not_found': 'Full hash check {id} not found: it ended a while ago, or Nazgarr restarted.',
   'errors.full_check_candidate_not_found': 'Torrent candidate {id} not found.',
   'errors.full_check_seed_job_mismatch': 'Execution {seed_job_id} does not belong to torrent candidate {candidate_id}.',

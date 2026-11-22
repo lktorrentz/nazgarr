@@ -12,6 +12,8 @@ let seedJobs: unknown[] = []
 let hasNextPage = false
 let queueError: Error | null = null
 const refetch = vi.fn()
+const approveAll = vi.fn()
+let approveAllStatus: unknown = undefined
 const toast = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: vi.fn() }))
 vi.mock('sonner', () => ({ toast }))
 
@@ -40,9 +42,12 @@ vi.mock('@/api/hooks/reviews', () => ({
   useRecentSeedJobs: () => ({ data: seedJobs, isPending: false }),
   useRetryFailed: () => ({ mutate: retry, isPending: false }),
   useDeleteSeedJob: () => ({ mutate: vi.fn(), isPending: false }),
+  useApproveAllStatus: (enabled: boolean) => ({ data: enabled ? approveAllStatus : undefined, isFetching: false }),
+  useApproveAll: () => ({ mutate: approveAll, isPending: false }),
 }))
 vi.mock('@/api/hooks/fullChecks', () => ({
   useFullCheck: () => ({ data: undefined }),
+  useFullChecks: () => ({ data: [] }),
   useStartFullCheck: () => ({ mutate: vi.fn(), isPending: false }),
   useCancelFullCheck: () => ({ mutate: vi.fn(), isPending: false }),
 }))
@@ -102,6 +107,44 @@ describe('ReseedingPage review queue', () => {
       globalThis.IntersectionObserver = original
       hasNextPage = false
     }
+  })
+})
+
+describe('ReseedingPage approve all', () => {
+  const status = (over: object = {}) => ({
+    recommended: 3, below_threshold: 2, verify_failed: 0, verify_before_execute: true, batch: null, ...over,
+  })
+
+  it('approves only the recommended unless the ones below the threshold are switched on', () => {
+    reviews = [review(1, 'First.Movie.mkv')]
+    approveAllStatus = status()
+    render(<ReseedingPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Approve all' }))
+    expect(screen.getByText('3 recommended (above the threshold)')).toBeTruthy()
+    expect(screen.getByText(/one at a time: with many files it can take hours/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve 3' }))
+    expect(approveAll).toHaveBeenLastCalledWith(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve all' }))
+    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve 5' }))
+    expect(approveAll).toHaveBeenLastCalledWith(true)
+  })
+
+  it('warns when nothing checks the hashes first and says which stay in the queue', () => {
+    reviews = [review(1, 'First.Movie.mkv')]
+    approveAllStatus = status({ recommended: 0, below_threshold: 0, verify_failed: 4, verify_before_execute: false })
+    render(<ReseedingPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Approve all' }))
+    expect(screen.getByText(/only the client’s recheck stops a wrong match/)).toBeTruthy()
+    expect(screen.getByText('4 whose full hash check already failed stay in the queue.')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Approve 0' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('has no button on an empty queue', () => {
+    reviews = []
+    render(<ReseedingPage />)
+    expect(screen.queryByRole('button', { name: 'Approve all' })).toBeNull()
   })
 })
 

@@ -58,6 +58,12 @@ export function updateActivity(id: string, patch: Partial<Omit<Activity, 'id' | 
   emit()
 }
 
+// Un'attività può essere uscita dallo stack (MAX_VISIBLE) senza che chi la
+// aggiorna lo sappia.
+export function hasActivity(id: string): boolean {
+  return activities.some((a) => a.id === id)
+}
+
 export function dismissActivity(id: string) {
   const timer = timers.get(id)
   if (timer) clearTimeout(timer)
