@@ -25,8 +25,11 @@ nativa di qBittorrent che qbittorrent-api si aspetta — confermato contro il
 suo swagger/OpenAPI reale, non solo dedotto. Vedi nazgarr/adapters/torrent_client/qui.py.
 """
 
+import copy
 import functools
+import hmac
 import logging
+import secrets
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -61,6 +64,46 @@ logger = logging.getLogger(__name__)
 # 2026-10-18). Pochi, per non caricare il client.
 FILE_WORKERS = 4
 
+# Una sessione di qBittorrent per client, non un login per operazione
+# (segnalato 2026-11-24: il log di qBittorrent pieno di "WebAPI login
+# success", uno per ogni operazione di Nazgarr, e ogni 30 secondi uno per
+# ogni upload in attesa del recheck). Si tengono solo i cookie della sessione,
+# mai il client: ogni operazione ha ancora il suo client e la sua sessione di
+# requests, e i thread non si contendono niente (qbittorrent-api rifà la
+# sessione da sé, a un nuovo login o dopo un errore). Un cookie scaduto, o
+# qBittorrent riavviato, dà 403: qbittorrent-api rifà il login e il cookie
+# nuovo torna qui alla chiusura. Solo in memoria, mai su disco né nei log:
+# vale quanto la password, che l'adapter tiene già.
+_SESSIONS_MAX = 32  # indirizzi e credenziali diversi; i più vecchi escono
+_sessions_lock = threading.Lock()
+_sessions: dict[str, list] = {}
+# La chiave è un HMAC con un segreto del processo: nemmeno l'impronta della
+# password resta ricavabile dalla memoria.
+_SESSION_KEY_SECRET = secrets.token_bytes(32)
+
+
+def _session_key(base_url: str, username: str | None, password: str | None) -> str:
+    """Cambia con indirizzo e credenziali: dopo una modifica del client la
+    prima operazione fa il login con quelle nuove."""
+    parts = "\0".join((base_url, username or "", password or ""))
+    return hmac.new(_SESSION_KEY_SECRET, parts.encode(), "sha256").hexdigest()
+
+
+def _saved_cookies(key: str) -> list:
+    with _sessions_lock:
+        return [copy.copy(cookie) for cookie in _sessions.get(key, ())]
+
+
+def _save_cookies(key: str, cookies: list | None) -> None:
+    """I cookie della sessione per l'operazione dopo, o None per scordarla
+    (un login fallito: il prossimo ci riprova senza il cookie vecchio)."""
+    with _sessions_lock:
+        _sessions.pop(key, None)
+        if cookies:
+            _sessions[key] = [copy.copy(cookie) for cookie in cookies]
+            while len(_sessions) > _SESSIONS_MAX:
+                _sessions.pop(next(iter(_sessions)))
+
 
 @functools.cache
 def pinned_client_class():
@@ -83,6 +126,11 @@ def pinned_client_class():
     class PinnedClient(qbittorrentapi.Client):
         def __init__(self, *args, **kwargs):
             self._pin_lock = threading.Lock()
+            # I cookie della sessione tenuta (_sessions), messi in ogni
+            # sessione di requests nuova: qbittorrent-api la rifà già alla
+            # prima richiesta, dopo aver scelto lo schema, e un cookie messo
+            # solo nella prima andava perso.
+            self.resume_cookies: list = []
             super().__init__(*args, **kwargs)
 
         @property
@@ -101,8 +149,19 @@ def pinned_client_class():
                     session.mount("http://", adapter)
                     session.mount("https://", adapter)
                     default.close()
+                    for cookie in self.resume_cookies:
+                        session.cookies.set_cookie(copy.copy(cookie))
                     session._nazgarr_pinned = True
                 return session
+
+        def auth_log_in(self, *args, **kwargs):
+            """Il login parte senza i cookie della sessione tenuta (scaduta,
+            se si arriva qui), e quelli nuovi valgono per le sessioni che
+            qbittorrent-api rifà dopo, a un errore di connessione."""
+            self.resume_cookies = []
+            super().auth_log_in(*args, **kwargs)
+            session = self._http_session
+            self.resume_cookies = [copy.copy(cookie) for cookie in session.cookies] if session is not None else []
 
     return PinnedClient
 
@@ -124,6 +183,8 @@ class QBittorrentAdapter(TorrentClientAdapter):
         self.password = password
         self.poll_interval = poll_interval
         self.poll_timeout = poll_timeout
+        # None con un client passato da fuori (i test): niente sessioni tenute.
+        self._session_key: str | None = None
         if client is not None:
             self._client = client
         else:
@@ -133,18 +194,28 @@ class QBittorrentAdapter(TorrentClientAdapter):
             # Un host senza schema (qbittorrent-api lo accetta) vale come http.
             net_guard.check_url(base_url if "://" in base_url else f"http://{base_url}")
             self._client = pinned_client_class()(host=base_url, username=username, password=password)
+            self._session_key = _session_key(base_url, username, password)
+            self._client.resume_cookies = _saved_cookies(self._session_key)
+
+    def forget_session(self) -> None:
+        """Per la prova del client: un login vero con le credenziali salvate,
+        non la sessione di prima (una password cambiata solo in qBittorrent
+        non risulterebbe finché quella vale)."""
+        if self._session_key is not None:
+            self._client.resume_cookies = []
+            if self._client._http_session is not None:
+                self._client._http_session.cookies.clear()
 
     def close(self) -> None:
-        """Logout: ogni login apre una sessione nel client, che resta viva
-        un'ora; con un adapter per operazione si accumulavano."""
-        logout = getattr(self._client, "auth_log_out", None)
-        # Solo se c'è una sessione (il cookie SID): un adapter mai usato non
-        # ha fatto login, e non va interrogato il client per niente.
-        if callable(logout) and getattr(self._client, "_SID", None):
-            try:
-                logout()
-            except Exception:  # client già irraggiungibile: niente da chiudere
-                logger.debug("Logout da qBittorrent fallito", exc_info=True)
+        """Non esce dalla sessione: la tiene per l'operazione dopo (vedi
+        _sessions). Prima ogni operazione faceva login e logout."""
+        if self._session_key is None:
+            return
+        # Quelli ripresi, o quelli di un login riuscito; nessuno dopo un login
+        # fallito, e allora si scorda anche la sessione. Tutti i cookie, non
+        # solo SID: dalla 5.2 si chiama QBT_SID_<porta>, e il nome si può
+        # cambiare.
+        _save_cookies(self._session_key, self._client.resume_cookies)
 
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,

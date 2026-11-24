@@ -231,24 +231,153 @@ def test_remove_torrent_deletes_files_only_on_request(delete_files):
     assert client.deleted == ("h1", delete_files)
 
 
-def test_close_logs_out_only_when_there_is_a_session():
-    """Ogni login apre una sessione nel client (un'ora): chiudendo l'adapter
-    si esce, ma uno mai usato non interroga il client."""
-    from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
+class FakeQbtServer:
+    """qBittorrent sotto requests: qbittorrent-api vero sopra, con la scelta
+    dello schema, i 403 e i nuovi login. Conta i login, come il log di
+    qBittorrent ("WebAPI login success")."""
 
-    class Client:
-        def __init__(self, sid):
-            self._SID = sid
-            self.logouts = 0
+    def __init__(self, password="p", cookie_name="SID"):
+        self.password = password
+        self.cookie_name = cookie_name
+        self.sids: set[str] = set()
+        self.logins = 0
+        self.login_cookies: list[str] = []  # i cookie che ogni login si porta dietro
 
-        def auth_log_out(self):
-            self.logouts += 1
+    def restart(self):
+        self.sids.clear()
 
-    used, unused = Client("abc"), Client(None)
-    with QBittorrentAdapter("http://qb", "u", "p", client=used):
-        pass
-    QBittorrentAdapter("http://qb", "u", "p", client=unused).close()
-    assert used.logouts == 1 and unused.logouts == 0
+    def handle(self, request):
+        import email.message
+        from types import SimpleNamespace
+        from urllib.parse import parse_qs, urlsplit
+
+        import requests
+
+        path = urlsplit(request.url).path
+        cookie = request.headers.get("Cookie", "")
+        sent = dict(part.split("=", 1) for part in cookie.split("; ") if "=" in part)
+        status, body, set_cookie = 200, "", None
+        if path.endswith("/auth/login"):
+            form = parse_qs(request.body or "")
+            self.login_cookies.append(cookie)
+            if form.get("password") == [self.password]:
+                self.logins += 1
+                sid = f"sid{len(self.sids) + self.logins}"
+                self.sids.add(sid)
+                body, set_cookie = "Ok.", f"{self.cookie_name}={sid}; HttpOnly; path=/; SameSite=Strict"
+            else:
+                body = "Fails."
+        elif request.method != "HEAD" and sent.get(self.cookie_name) not in self.sids:
+            status, body = 403, "Forbidden"
+        elif path.endswith("/torrents/info"):
+            body = '[{"hash": "h1", "name": "Movie.mkv"}]'
+
+        response = requests.Response()
+        response.status_code, response._content, response.url, response.request = (
+            status, body.encode(), request.url, request)
+        response.headers["Content-Type"] = "application/json" if body.startswith("[") else "text/plain"
+        headers = email.message.Message()
+        if set_cookie:
+            headers["Set-Cookie"] = set_cookie
+        response.raw = SimpleNamespace(_original_response=SimpleNamespace(msg=headers))
+        return response
+
+
+@pytest.fixture
+def qbt_server(monkeypatch):
+    import requests
+
+    from nazgarr.adapters.torrent_client import qbittorrent
+    from nazgarr.core import net_guard
+
+    server = FakeQbtServer()
+
+    class Transport(requests.adapters.BaseAdapter):
+        def send(self, request, **kwargs):
+            return server.handle(request)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(net_guard, "check_url", lambda url: None)
+    monkeypatch.setattr(net_guard, "requests_adapter", lambda **kwargs: Transport())
+    monkeypatch.setattr(qbittorrent, "_sessions", {})
+    return server
+
+
+def _count(password="p"):
+    with QBittorrentAdapter("http://nas.example:8080", "u", password) as adapter:
+        return adapter.count_torrents()
+
+
+def test_one_login_per_client_not_per_operation(qbt_server):
+    """Segnalato 2026-11-24: il log di qBittorrent pieno di "WebAPI login
+    success", uno per ogni operazione di Nazgarr. La sessione si tiene: le
+    operazioni dopo la prima non rifanno il login."""
+    assert [_count() for _ in range(3)] == [1, 1, 1]
+    assert qbt_server.logins == 1
+
+
+def test_an_expired_session_logs_in_again_by_itself_without_the_old_cookie(qbt_server):
+    _count()
+    qbt_server.restart()  # qBittorrent riavviato, o la sessione scaduta
+    assert _count() == 1
+    assert _count() == 1
+    assert qbt_server.logins == 2
+    assert qbt_server.login_cookies == ["", ""]  # il login parte pulito, mai col cookie scaduto
+
+
+def test_new_credentials_log_in_with_them(qbt_server):
+    _count()
+    qbt_server.password = "new"
+    qbt_server.restart()
+    assert _count("new") == 1
+    assert _count("new") == 1
+    assert qbt_server.logins == 2
+
+
+def test_a_failed_login_forgets_the_session(qbt_server):
+    import qbittorrentapi
+
+    from nazgarr.adapters.torrent_client import qbittorrent
+
+    _count()
+    qbt_server.password = "changed in qBittorrent"
+    qbt_server.restart()
+    with pytest.raises(qbittorrentapi.LoginFailed):
+        _count()
+    assert qbittorrent._sessions == {}
+
+
+def test_the_client_test_logs_in_for_real(qbt_server):
+    """La prova del client è delle credenziali salvate: una password cambiata
+    solo in qBittorrent deve risultare subito, anche con la sessione viva."""
+    import qbittorrentapi
+
+    _count()
+    with QBittorrentAdapter("http://nas.example:8080", "u", "p") as adapter:
+        adapter.forget_session()
+        assert adapter.count_torrents() == 1
+    assert qbt_server.logins == 2
+    assert _count() == 1 and qbt_server.logins == 2  # la sessione nuova resta per le altre
+
+    qbt_server.password = "changed in qBittorrent"
+    with QBittorrentAdapter("http://nas.example:8080", "u", "p") as adapter:
+        adapter.forget_session()
+        with pytest.raises(qbittorrentapi.LoginFailed):
+            adapter.count_torrents()
+
+
+def test_the_cookie_name_of_newer_qbittorrent_is_kept_too(qbt_server):
+    qbt_server.cookie_name = "QBT_SID_8080"  # dalla 5.2
+    assert [_count() for _ in range(2)] == [1, 1]
+    assert qbt_server.logins == 1
+
+
+def test_an_adapter_never_used_keeps_the_session(qbt_server):
+    _count()
+    QBittorrentAdapter("http://nas.example:8080", "u", "p").close()
+    assert _count() == 1 and qbt_server.logins == 1
 
 
 def test_the_factory_closes_the_adapter_even_when_the_operation_fails(monkeypatch):

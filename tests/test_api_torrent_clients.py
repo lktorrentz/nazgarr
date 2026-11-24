@@ -83,6 +83,28 @@ def test_connection_test_only_counts_the_torrents(client, monkeypatch):
     assert client.post(f"/api/torrent-clients/{tc_id}/test").json()["torrents_found"] == 5000
 
 
+def test_connection_test_logs_in_again_instead_of_reusing_the_session(client, monkeypatch):
+    """qBittorrent tiene la sessione fra le operazioni (2026-11-24): la prova
+    no, è delle credenziali salvate, e lo scorda prima di contare."""
+    tc_id = client.post(
+        "/api/torrent-clients", json={"label": "qbt", "adapter_type": "qbittorrent", "base_url": "http://qbt"}
+    ).json()["id"]
+    calls = []
+
+    class FakeAdapter:
+        def forget_session(self):
+            calls.append("forget")
+
+        def count_torrents(self):
+            calls.append("count")
+            return 1
+
+    monkeypatch.setattr("nazgarr.integrations.adapter_factory.build_torrent_client_adapter", lambda tc: FakeAdapter())
+
+    assert client.post(f"/api/torrent-clients/{tc_id}/test").json()["status"] == "ok"
+    assert calls == ["forget", "count"]
+
+
 def test_connection_test_reports_failure_against_unreachable_host(client):
     # Porta 1 su localhost: quasi certamente nessuno in ascolto, connection
     # refused immediato — nessuna chiamata di rete reale verso l'esterno.
