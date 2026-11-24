@@ -258,6 +258,11 @@ def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_s
     tc = _get_torrent_client_or_404(session, torrent_client_id)
     try:
         with adapter_factory.torrent_client(tc) as adapter:
+            # Un login vero, non la sessione tenuta dalle operazioni di prima
+            # (qBittorrent): la prova è delle credenziali salvate.
+            forget_session = getattr(adapter, "forget_session", None)
+            if callable(forget_session):
+                forget_session()
             count = getattr(adapter, "count_torrents", None)  # un plugin senza la classe base
             torrents_found = count() if callable(count) else len(adapter.list_torrents())
             try:
