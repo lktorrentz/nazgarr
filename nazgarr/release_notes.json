@@ -2,6 +2,58 @@
   "_format": "One entry per stable version, newest first: version, date (YYYY-MM-DD), breaking, highlights (new things) and fixes, each a list per language (it, en). Shown in the app after an update and before one (nazgarr/core/updates.py). Proposed before each promotion to stable, approved by the maintainer; the detailed notes, chores included, are in CHANGELOG.md.",
   "entries": [
     {
+      "version": "0.9.22",
+      "date": "2026-11-27",
+      "breaking": {
+        "it": [
+          "Al primo avvio Nazgarr copia il database in backups prima di aggiornarlo: serve spazio per una copia in più nella cartella dei dati.",
+          "I reseed entrano nel client fermi e partono solo dopo un recheck riuscito.",
+          "Eliminare un tracker o un disco già usato elimina anche la sua cronologia, dopo una conferma."
+        ],
+        "en": [
+          "At the first start Nazgarr copies the database to backups before updating it: the data folder needs free space for one more copy.",
+          "Reseeds are added to the client stopped and start only after a passed recheck.",
+          "Deleting a tracker or a disk that was used deletes its history too, after a confirmation."
+        ]
+      },
+      "highlights": {
+        "it": [
+          "Webhook di Radarr/Sonarr: libreria aggiornata a ogni import, senza scansione.",
+          "Reseeding: \"Approva tutti\", una riga per stagione, il pack vince sugli episodi singoli.",
+          "Dupe check con punteggio e nuovi verdetti; un dupe morto non ferma più l'upload.",
+          "Resurrection reclamata da sola prima del reseed, con la sessione web del tracker.",
+          "Upload programmati, \"Riprova\" dopo un errore, stagioni ed episodi divisi dalla cartella osservata.",
+          "Backup automatico del database prima degli aggiornamenti, nazgarr db restore e nazgarr reset-password."
+        ],
+        "en": [
+          "Radarr/Sonarr webhooks: the library is updated at every import, with no scan.",
+          "Reseeding: \"Approve all\", one row per season, the pack wins over single episodes.",
+          "Dupe check with a score and new verdicts; a dead dupe no longer stops an upload.",
+          "Resurrection claimed by itself before the reseed, with the tracker's website session.",
+          "Scheduled uploads, \"Retry\" after a failure, seasons and episodes split from the watched folder.",
+          "Automatic database backup before updates, nazgarr db restore and nazgarr reset-password."
+        ]
+      },
+      "fixes": {
+        "it": [
+          "Un upload fallito dalla cartella osservata seguito da un reseed riuscito poteva eliminare ogni copia della release.",
+          "qBittorrent: una sessione per client invece di un login per operazione.",
+          "Scegliere alcune stagioni al match caricava tutta la cartella.",
+          "Le serie senza anno nel nome non si abbinavano da sole.",
+          "Nomi dei file generati: stagione scelta al match e titolo nella lingua del tracker.",
+          "Screenshot falliti sulle sorgenti SDR senza tag HDR."
+        ],
+        "en": [
+          "A failed upload from the watched folder followed by a successful reseed could delete every copy of the release.",
+          "qBittorrent: one session per client instead of a login per operation.",
+          "Choosing some seasons at the match uploaded the whole folder.",
+          "Series with no year in their name never matched by themselves.",
+          "Generated file names: the season chosen at the match and the title in the tracker's language.",
+          "Screenshots failed on SDR sources without an HDR tag."
+        ]
+      }
+    },
+    {
       "version": "0.9.0",
       "date": "2026-10-05",
       "breaking": {
